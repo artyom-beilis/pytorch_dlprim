@@ -87,7 +87,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         dlprim::Tensor t(todp(self));
         auto q = getExecutionContext(self);
         dlprim::core::fill_tensor(t,value.to<double>(),q);
-        q.finish();
+        sync_if_needed(self.device());
         return self;
     }
     Tensor &zero_(Tensor &self)
@@ -154,8 +154,10 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         auto conv = dlprim::core::Conv2DForward::create(ctx,cfg,with_bias);
         size_t ws_size = conv->workspace();
         dlprim::Tensor ws;
+        at::DataPtr ws_ptr;
         if(ws_size) {
-            ws=dlprim::Tensor(ctx,dlprim::Shape(ws_size),dlprim::uint8_data);
+            ws_ptr = std::move(CLContextManager::allocate(input.device(),ws_size));
+            ws=dlprim::Tensor(cl::Buffer((cl_mem)ws_ptr.get(),true),0,dlprim::Shape(ws_size),dlprim::uint8_data);
         }
         
         dlprim::Shape rs = dlprim::core::Conv2DForward::get_output_shape(cfg,X.shape());
@@ -167,7 +169,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
                                               input.dtype().toScalarType());
         dlprim::Tensor Y = todp(result);
         conv->enqueue(X,W,(with_bias ? &B : nullptr),Y,ws,0,q);
-        q.finish();
+        sync_if_needed(input.device());
 
         return result;
     }
@@ -177,7 +179,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         dlprim::Tensor X = todp(self);
         dlprim::ExecutionContext q = getExecutionContext(self);
         dlprim::core::activation_forward(X,X,dlprim::StandardActivations::relu,q);
-        q.finish();
+        sync_if_needed(self.device());
         return self;
     }
     ::std::tuple<Tensor &,Tensor &> max_pool2d_with_indices_out(const Tensor & self, IntArrayRef kernel_size, IntArrayRef stride, IntArrayRef padding, IntArrayRef dilation, bool ceil_mode, Tensor & out, Tensor & indices)
@@ -195,7 +197,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         int strd[2] = {int(stride[0]),int(stride[1])};
         auto pool = dlprim::core::Pooling2DForward::create_max_pooling(ctx,kernel,pad,strd,todp(self.dtype()));
         pool->enqueue(X,Y,q);
-        q.finish();
+        sync_if_needed(self.device());
 
         return std::tuple<Tensor &,Tensor &>(out,indices);
     }
@@ -216,7 +218,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
             dlprim::Context ctx(q);
             auto pool = dlprim::core::Pooling2DForward::create_global_avg_pooling(ctx,X.shape(),todp(self.dtype()));
             pool->enqueue(X,Y,q);
-            q.finish();
+            sync_if_needed(self.device());
             return result;
         }
         else {
@@ -245,7 +247,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         if(has_bias)
             B=todp(*bias);
         ip->enqueue(X,W,(has_bias ? &B : nullptr),Y,q);
-        q.finish();
+        sync_if_needed(input.device());
         return result;
     }
     Tensor as_strided(const Tensor & self, IntArrayRef size, IntArrayRef /*stride*/, c10::optional<int64_t> /*storage_offset*/)
@@ -255,7 +257,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         dlprim::Tensor Y = todp(result);
         dlprim::ExecutionContext q = getExecutionContext(self);
         q.queue().enqueueCopyBuffer(X.device_buffer(),Y.device_buffer(),X.device_offset(),Y.device_offset(),X.memory_size(),q.events(),q.event("copy"));
-        q.finish();
+        sync_if_needed(self.device());
         return result;
 
     }
