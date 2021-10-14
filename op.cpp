@@ -5,6 +5,7 @@
 #include <dlprim/core/ip.hpp>
 #include <dlprim/core/conv.hpp>
 #include <dlprim/core/pool.hpp>
+#include <dlprim/core/loss.hpp>
 #include <dlprim/core/activation.hpp>
 
 #include <iostream>
@@ -189,12 +190,26 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         dlprim::Tensor Y = todp(out);
         dlprim::ExecutionContext q = getExecutionContext(self);
         dlprim::Context ctx(q);
-        TORCH_CHECK(kernel_size.size()==2 && stride.size()==2 && padding.size()==2 && dilation.size()==2,"Invalid sizes");
+        TORCH_CHECK(kernel_size.size()==2,"Invalid sizes");
         TORCH_CHECK(dilation[0]==1 && dilation[1]==1,"Dilation != 1 is not implemented yet");
         TORCH_CHECK(ceil_mode==false,"ceil mode=true not implemeted yet");
         int kernel[2]={int(kernel_size[0]),int(kernel_size[1])};
-        int pad[2]={int(padding[0]),int(padding[1])};
-        int strd[2] = {int(stride[0]),int(stride[1])};
+        int pad[2]={0,0};
+        int strd[2]={1,1};
+        if(padding.size()>1) {
+            pad[0] = padding[0];
+            if(padding.size()>=2)
+                pad[1] = padding[1];
+            else 
+                pad[1] = pad[0];
+        }
+        if(stride.size()>1) {
+            strd[0] = stride[0];
+            if(stride.size()>=2)
+                strd[1] = stride[1];
+            else 
+                strd[1] = strd[0];
+        }
         auto pool = dlprim::core::Pooling2DForward::create_max_pooling(ctx,kernel,pad,strd,todp(self.dtype()));
         pool->enqueue(X,Y,q);
         sync_if_needed(self.device());
@@ -250,6 +265,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         sync_if_needed(input.device());
         return result;
     }
+#if 0
     Tensor as_strided(const Tensor & self, IntArrayRef size, IntArrayRef /*stride*/, c10::optional<int64_t> /*storage_offset*/)
     {
         Tensor result = new_ocl_tensor(size,self.device(),self.dtype().toScalarType());
@@ -261,6 +277,39 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         return result;
 
     }
+#endif
+
+    // {"schema": "aten::_log_softmax.out(Tensor self, int dim, bool half_to_float, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & _log_softmax_out(const Tensor & self, int64_t dim, bool /*half_to_float*/, Tensor & out)
+    {
+        TORCH_CHECK(dim==1,"Only case dim=1 is supported currently");
+        dlprim::Tensor x=todp(self);
+        dlprim::Tensor y=todp(out);
+        dlprim::core::softmax_forward(x,y,true,getExecutionContext(self));
+        sync_if_needed(self.device());
+        return out;
+    }
+
+    // {"schema": "aten::nll_loss_forward.output(Tensor self, Tensor target, Tensor? weight, int reduction, int ignore_index, *, Tensor(a!) output, Tensor(b!) total_weight) -> (Tensor(a!), Tensor(b!))", "dispatch": "True", "default": "False"}
+
+    ::std::tuple<Tensor &,Tensor &> nll_loss_forward_out(const Tensor & self, const Tensor & target, const c10::optional<Tensor> & weight, int64_t reduction, int64_t ignore_index, Tensor & output, Tensor & total_weight)
+    {
+        dlprim::Tensor x=todp(self);
+        dlprim::Tensor lbl=todp(target);
+        dlprim::Tensor y=todp(output);
+        bool reduce = false;
+        float scale = 1;
+        switch(reduction) {
+        case 0: reduce=false; break; // None
+        case 1: reduce=true; scale = 1.0f/x.shape()[0]; break; // Mean
+        case 2: reduce=true; break; // sum
+        }
+        dlprim::core::nll_loss_forward(x,lbl,y,reduce,scale,getExecutionContext(self));
+        sync_if_needed(self.device());
+        return std::tuple<Tensor &,Tensor &>(output,total_weight);
+    }
+
+
 } // namespace
 
 TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
@@ -276,6 +325,8 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::_adaptive_avg_pool2d",&ptdlprim::_adaptive_avg_pool2d);
       //m.impl("aten::as_strided",&ptdlprim::as_strided);
       //m.impl("aten::linear",&ptdlprim::linear);
+      m.impl("aten::_log_softmax.out",&ptdlprim::_log_softmax_out);
+      m.impl("aten::nll_loss_forward.output",&ptdlprim::nll_loss_forward_out);
 }
 
 TORCH_LIBRARY_IMPL(aten, AutogradPrivateUse1, m) {
