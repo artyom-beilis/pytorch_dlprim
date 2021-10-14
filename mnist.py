@@ -11,8 +11,8 @@ from torch.optim.lr_scheduler import StepLR
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 32, 3, padding=1)
-        self.conv2 = nn.Conv2d(32, 64, 3, padding=1)
+        self.conv1 = nn.Conv2d(1, 32, 3, padding=0)
+        self.conv2 = nn.Conv2d(32, 64, 3, padding=0)
         self.fc1 = nn.Conv2d(64, 128, 12, padding=0)
         self.fc2 = nn.Conv2d(128, 10, 1, padding=0)
         #self.fc1 = nn.Linear(9216, 128)
@@ -26,7 +26,6 @@ class Net(nn.Module):
         x = F.max_pool2d(x, 2)
         #x = torch.flatten(x, 1)
         x = self.fc1(x)
-        print(x.shape)
         x = F.relu_(x)
         x = self.fc2(x)
         output = torch.flatten(x, 1)

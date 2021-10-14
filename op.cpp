@@ -309,6 +309,38 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         return std::tuple<Tensor &,Tensor &>(output,total_weight);
     }
 
+    // {"schema": "aten::nll_loss_backward.grad_input(Tensor grad_output, Tensor self, Tensor target, Tensor? weight, int reduction, int ignore_index, Tensor total_weight, *, Tensor(a!) grad_input) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & nll_loss_backward_out(const Tensor & grad_output, const Tensor & self, const Tensor & target, const c10::optional<Tensor> & weight, int64_t reduction, int64_t ignore_index, const Tensor & total_weight, Tensor & grad_input)
+    {
+        dlprim::Tensor dx=todp(grad_input);
+        dlprim::Tensor lbl=todp(target);
+        dlprim::Tensor dy=todp(grad_output);
+        bool reduce = false;
+        float scale = 1;
+        switch(reduction) {
+        case 0: reduce=false; break; // None
+        case 1: reduce=true; scale = 1.0f/dy.shape()[0]; break; // Mean
+        case 2: reduce=true; break; // sum
+        }
+        dlprim::core::nll_loss_backward(dx,lbl,dy,reduce,scale,0.0f,getExecutionContext(self));
+        sync_if_needed(self.device());
+        return grad_input;
+    }
+
+    // {"schema": "aten::_log_softmax_backward_data.out(Tensor grad_output, Tensor output, int dim, ScalarType input_dtype, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & _log_softmax_backward_data_out(const Tensor & grad_output, const Tensor & output, int64_t dim, ScalarType input_dtype, Tensor & out)
+    {
+        dlprim::Tensor dx = todp(out);
+        dlprim::Tensor y = todp(output);
+        dlprim::Tensor dy = todp(grad_output);
+
+        dlprim::core::softmax_backward(dx,y,dy,true,0.0f,getExecutionContext(grad_output));
+        sync_if_needed(grad_output.device());
+        return out;
+    }
+    
+    // {"schema": "aten::convolution_backward_overrideable(Tensor grad_output, Tensor input, Tensor weight, int[] stride, int[] padding, int[] dilation, bool transposed, int[] output_padding, int groups, bool[3] output_mask) -> (Tensor grad_input, Tensor grad_weight, Tensor grad_bias)", "dispatch": "True", "default": "True"}
+    ::std::tuple<Tensor,Tensor,Tensor> convolution_backward_overrideable(const Tensor & grad_output, const Tensor & input, const Tensor & weight, IntArrayRef stride, IntArrayRef padding, IntArrayRef dilation, bool transposed, IntArrayRef output_padding, int64_t groups, ::std::array<bool,3> output_mask); 
 
 } // namespace
 
@@ -327,6 +359,8 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       //m.impl("aten::linear",&ptdlprim::linear);
       m.impl("aten::_log_softmax.out",&ptdlprim::_log_softmax_out);
       m.impl("aten::nll_loss_forward.output",&ptdlprim::nll_loss_forward_out);
+      m.impl("aten::nll_loss_backward.grad_input",&ptdlprim::nll_loss_backward_out);
+      m.impl("aten::_log_softmax_backward_data.out",&ptdlprim::_log_softmax_backward_data_out);
 }
 
 TORCH_LIBRARY_IMPL(aten, AutogradPrivateUse1, m) {
