@@ -31,6 +31,16 @@ namespace ptdlprim {
 
     class CLCache {
     public:
+        typedef std::unordered_map<std::int64_t,std::list<std::unique_ptr<CLMemAllocation> > > allocation_type;
+        allocation_type allocation;
+
+        void clear()
+        {
+            {
+                allocation_type tmp;
+                tmp.swap(allocation);
+            }
+        }
         static std::uint64_t round(uint64_t v)
         {
             v--;
@@ -44,7 +54,7 @@ namespace ptdlprim {
             return v;
         }
 
-        std::unordered_map<std::int64_t,std::list<std::unique_ptr<CLMemAllocation> > > allocation;
+
         std::unique_ptr<CLMemAllocation> allocate(int id,cl::Context &ctx,int64_t size)
         {
             size = round(size);
@@ -71,9 +81,19 @@ namespace ptdlprim {
         static CLContextManager &instance()
         {
             static std::once_flag once;
-            static CLContextManager inst;
-            std::call_once(once,init,&inst);
-            return inst;
+            static CLContextManager *inst=nullptr;
+            std::call_once(once,init,inst);
+            return *inst;
+        }
+        ~CLContextManager()
+        {
+            {
+                std::vector<DevData> tmp;
+                tmp.swap(data_);
+                for(DevData &data:tmp)
+                    data.cache.clear();
+            }
+            no_cache_ = true;
         }
         static unsigned count()
         {
@@ -137,8 +157,9 @@ namespace ptdlprim {
 
 
 
-        static void init(CLContextManager *self)
+        static void init(CLContextManager *&self)
         {
+            self = new CLContextManager();
             self->allocate();
         }
         void allocate()
@@ -218,6 +239,7 @@ namespace ptdlprim {
 
     dlprim::Tensor todp(torch::Tensor const &tt)
     {
+        TORCH_CHECK(tt.device().type() == c10::DeviceType::OPENCL,"OpenCL device is required for tensor");
         auto ct = tt.contiguous();
         cl_mem p=static_cast<cl_mem>(ct.data_ptr());
         auto sizes = ct.sizes();

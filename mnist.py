@@ -6,34 +6,32 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.optim.lr_scheduler import StepLR
-
+import time
 
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
         self.conv1 = nn.Conv2d(1, 32, 3, padding=0)
         self.conv2 = nn.Conv2d(32, 64, 3, padding=0)
-        self.fc1 = nn.Conv2d(64, 128, 12, padding=0)
-        self.fc2 = nn.Conv2d(128, 10, 1, padding=0)
-        #self.fc1 = nn.Linear(9216, 128)
-        #self.fc2 = nn.Linear(128, 10)
+        self.fc1 = nn.Linear(5*5*64, 128)
+        self.fc2 = nn.Linear(128, 10)
 
     def forward(self, x):
         x = self.conv1(x)
         x = F.relu_(x)
-        x = self.conv2(x)
-        x = F.relu_(x)
         x = F.max_pool2d(x, 2)
-        #x = torch.flatten(x, 1)
+        x = self.conv2(x)
+        x = F.relu(x)
+        x = F.max_pool2d(x, 2)
+        x = torch.flatten(x, 1)
         x = self.fc1(x)
-        x = F.relu_(x)
-        x = self.fc2(x)
-        output = torch.flatten(x, 1)
-        #output = F.log_softmax(x, dim=1)
+        x = F.relu(x)
+        output = self.fc2(x)
         return output
 
 
 def train(args, model, device, train_loader, optimizer, epoch):
+    start = time.time()
     model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
@@ -48,6 +46,8 @@ def train(args, model, device, train_loader, optimizer, epoch):
                 100. * batch_idx / len(train_loader), loss.item()))
             if args.dry_run:
                 break
+    end = time.time()
+    print("Epoch in %5.1fs" % (end-start))
 
 
 def test(model, device, test_loader):
@@ -56,10 +56,11 @@ def test(model, device, test_loader):
     correct = 0
     with torch.no_grad():
         for data, target in test_loader:
-            data, target = data.to(device), target.to(device)
-            output = model(data)
-            test_loss += F.cross_entropy(output,target, reduction='sum').item()  # sum up batch loss
-            pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
+            data_dev = data.to(device)
+            target_dev = target.to(device)
+            output = model(data_dev)
+            test_loss += F.cross_entropy(output,target_dev, reduction='sum').item()  # sum up batch loss
+            pred = output.to('cpu').argmax(dim=1, keepdim=True)  # get the index of the max log-probability
             correct += pred.eq(target.view_as(pred)).sum().item()
 
     test_loss /= len(test_loader.dataset)
@@ -131,8 +132,9 @@ def main():
         scheduler.step()
 
     if args.save_model:
-        torch.save(model.state_dict(), "mnist_cnn.pt")
-
+        torch.save(model.to('cpu').state_dict(), "mnist_cnn.pt")
+    
 
 if __name__ == '__main__':
     main()
+    print("Done");
