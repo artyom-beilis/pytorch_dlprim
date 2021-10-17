@@ -147,7 +147,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         }
         else if(self.device().type() == c10::DeviceType::OPENCL && dst.device().type() == c10::DeviceType::OPENCL) {
             if(self.is_contiguous() && dst.is_contiguous()) {
-                dlprim::core::pointwise_operation({todp(self)},{todp(dst)},{},"y0=x0",getExecutionContext(self.device()));
+                dlprim::core::pointwise_operation({todp(self)},{todp(dst)},{},"y0=x0;",getExecutionContext(self.device()));
             }
             else {
                 auto src_sizes  = self.sizes();
@@ -890,6 +890,85 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         }
         return std::tuple<Tensor,Tensor,Tensor>(result,calc_mean_pt,calc_var_pt);
     }
+
+    // {"schema": "aten::native_batch_norm_backward(Tensor grad_out, Tensor input, Tensor? weight, Tensor? running_mean, Tensor? running_var, Tensor? save_mean, Tensor? save_invstd, bool train, float eps, bool[3] output_mask) -> (Tensor, Tensor, Tensor)", "dispatch": "True", "default": "False"} 
+    ::std::tuple<Tensor,Tensor,Tensor> native_batch_norm_backward(const Tensor & grad_out,
+                                                                  const Tensor & input,
+                                                                  const c10::optional<Tensor> & weight,
+                                                                  const c10::optional<Tensor> & running_mean,
+                                                                  const c10::optional<Tensor> & running_var,
+                                                                  const c10::optional<Tensor> & save_mean,
+                                                                  const c10::optional<Tensor> & save_var,
+                                                                  bool train,
+                                                                  double eps,
+                                                                  ::std::array<bool,3> output_mask)
+    {
+        bool weight_present = weight && weight->numel()>0; 
+        bool affine = weight_present;
+        dlprim::ExecutionContext q=getExecutionContext(input);
+        dlprim::Context ctx(q);
+        dlprim::Tensor dY = todp(grad_out);
+        dlprim::Tensor X = todp(input);
+        dlprim::Tensor W;
+        if(weight_present)
+            W = todp(*weight);
+        Tensor x_diff,gamma_diff,beta_diff;
+
+        bool bwd_data=output_mask[0];
+        bool bwd_gamma=output_mask[1] && affine;
+        bool bwd_beta=output_mask[2] && affine;
+        dlprim::Tensor dX,dG,dB;
+        if(bwd_data) {
+            x_diff = new_tensor_as(X.shape(),input);
+            dX = todp(x_diff);
+        }
+        if(bwd_gamma)  {
+            gamma_diff = new_tensor_as(dlprim::Shape(X.shape()[1]),input);
+            dG = todp(gamma_diff);
+        }
+        if(bwd_beta) {
+            beta_diff = new_tensor_as(dlprim::Shape(X.shape()[1]),input);
+            dB = todp(beta_diff);
+        }
+
+        auto bn = dlprim::core::BatchNormFwdBwd::create(ctx,X.shape(),X.dtype());
+        size_t ws_size = bn->workspace();
+        
+        DataPtr tmp;
+        dlprim::Tensor ws = make_workspace(tmp,ws_size,input.device());
+
+        dlprim::Tensor mean = train ? todp(*save_mean) : todp(*running_mean);
+        dlprim::Tensor var  = train ? todp(*save_var)  : todp(*running_var);
+
+        if(affine) {
+            bn->enqueue_backward_affine(
+                    train,
+                    X,dY,
+                    mean,var,
+                    W, 
+                    (bwd_data  ? &dX : nullptr),
+                    0.0,
+                    (bwd_gamma ? &dG : nullptr),
+                    0.0, 
+                    (bwd_beta  ? &dB : nullptr),
+                    0.0,
+                    eps,
+                    ws,q);
+        }
+        else {
+            bn->enqueue_backward_direct(
+                    train,
+                    X,dY,
+                    mean,var,
+                    dX,0.0,
+                    eps,
+                    ws,q);
+
+        }
+        sync_if_needed(input.device());
+        return std::tuple<torch::Tensor,torch::Tensor,torch::Tensor>(x_diff,gamma_diff,beta_diff);
+    }
+
     // {"schema": "aten::mean.out(Tensor self, int[1] dim, bool keepdim=False, *, ScalarType? dtype=None, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & mean_out(const Tensor & self, IntArrayRef dim, bool keepdim, c10::optional<ScalarType> /*dtype*/, Tensor & out)
     {
@@ -905,6 +984,33 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         sync_if_needed(self.device());
         return out;
     }
+
+    // {"schema": "aten::hardtanh_(Tensor(a!) self, Scalar min_val=-1, Scalar max_val=1) -> Tensor(a!)", "dispatch": "True", "default": "False"} 
+    Tensor & hardtanh_(Tensor & self, const Scalar & min_val, const Scalar & max_val)
+    {
+        dlprim::Tensor X=todp(self);
+        double w0 = min_val.toDouble();
+        double w1 = max_val.toDouble();
+        dlprim::core::pointwise_operation({X},{X},{w0,w1},"y0=max(w0,min(w1,x0));",getExecutionContext(self));
+        sync_if_needed(self.device());
+        return self;
+    }
+
+    // {"schema": "aten::hardtanh_backward(Tensor grad_output, Tensor self, Scalar min_val, Scalar max_val) -> Tensor", "dispatch": "True", "default": "False"}
+    Tensor hardtanh_backward(const Tensor & grad_output, const Tensor & self, const Scalar & min_val, const Scalar & max_val)
+    {
+        dlprim::Tensor dY = todp(grad_output);
+        dlprim::Tensor X  = todp(self);
+        Tensor result = new_tensor_as(X.shape(),self);
+        dlprim::Tensor dx = todp(result);
+        double w0 = min_val.toDouble();
+        double w1 = max_val.toDouble();
+        dlprim::core::pointwise_operation({X,dY},{X},{w0,w1},"y0 = (w0 <= x0 && x0 <= w1) ? x1 : 0;",getExecutionContext(self));
+        sync_if_needed(self.device());
+        return result;
+    }
+
+
 
 
 
@@ -939,7 +1045,10 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::bernoulli_.float",&ptdlprim::bernoulli_);
       m.impl("aten::_adaptive_avg_pool2d_backward",&ptdlprim::_adaptive_avg_pool2d_backward);
       m.impl("aten::native_batch_norm",&ptdlprim::native_batch_norm);
+      m.impl("aten::native_batch_norm_backward",&ptdlprim::native_batch_norm_backward);
       m.impl("aten::mean.out",&ptdlprim::mean_out);
+      m.impl("aten::hardtanh_",&ptdlprim::hardtanh_);
+      m.impl("aten::hardtanh_backward",&ptdlprim::hardtanh_backward);
 }
 
 TORCH_LIBRARY_IMPL(aten, AutogradPrivateUse1, m) {

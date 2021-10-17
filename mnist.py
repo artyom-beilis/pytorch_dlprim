@@ -9,7 +9,7 @@ from torch.optim.lr_scheduler import StepLR
 import time
 
 class Net(nn.Module):
-    use_bn = False
+    use_bn = True
     use_gp = False
     def __init__(self):
         super(Net, self).__init__()
@@ -90,7 +90,7 @@ def main():
                         help='input batch size for training (default: 64)')
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                         help='input batch size for testing (default: 1000)')
-    parser.add_argument('--epochs', type=int, default=14, metavar='N',
+    parser.add_argument('--epochs', type=int, default=5, metavar='N',
                         help='number of epochs to train (default: 14)')
     parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
                         help='learning rate (default: 1.0)')
