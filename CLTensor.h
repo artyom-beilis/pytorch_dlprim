@@ -237,15 +237,21 @@ namespace ptdlprim {
 
     }
 
-    dlprim::Tensor todp(torch::Tensor const &tt)
+    inline cl::Buffer buffer_from_tensor(torch::Tensor const &tt)
     {
         TORCH_CHECK(tt.device().type() == c10::DeviceType::OPENCL,"OpenCL device is required for tensor");
-        auto ct = tt.contiguous();
-        cl_mem p=static_cast<cl_mem>(ct.data_ptr());
-        auto sizes = ct.sizes();
-        auto offset = ct.storage_offset();
-        auto dtype = ct.dtype();
+        cl_mem p=static_cast<cl_mem>(tt.data_ptr());
         cl::Buffer buf(p,true);
+        return buf;
+    }
+    inline dlprim::Tensor todp(torch::Tensor const &tt)
+    {
+        TORCH_CHECK(tt.device().type() == c10::DeviceType::OPENCL,"OpenCL device is required for tensor");
+        TORCH_CHECK(tt.is_contiguous(),"dlprim::Tensor must be contiguous");
+        auto sizes = tt.sizes();
+        auto offset = tt.storage_offset();
+        auto dtype = tt.dtype();
+        cl::Buffer buf = buffer_from_tensor(tt);
         dlprim::Shape sp;
         if(sizes.empty())
             sp = dlprim::Shape(1); // scalar
@@ -254,7 +260,6 @@ namespace ptdlprim {
         dlprim::Tensor res(buf,offset,sp,todp(dtype));
         return res;
     }
-
 
     torch::Tensor new_ocl_tensor(torch::IntArrayRef size,c10::Device dev,c10::ScalarType type=c10::kFloat)
     {

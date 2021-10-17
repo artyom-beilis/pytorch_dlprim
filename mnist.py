@@ -9,20 +9,33 @@ from torch.optim.lr_scheduler import StepLR
 import time
 
 class Net(nn.Module):
+    use_bn = False
+    use_gp = False
     def __init__(self):
         super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 32, 3, padding=0)
+        self.conv1 = nn.Conv2d(1, 32, 3, padding=0,bias=not self.use_bn)
+        if self.use_bn:
+            self.bn = nn.BatchNorm2d(32);
         self.conv2 = nn.Conv2d(32, 64, 3, padding=0)
-        self.fc1 = nn.Linear(5*5*64, 128)
-        self.fc2 = nn.Linear(128, 10)
+        if self.use_gp:
+            self.fc1 = nn.Linear(64, 16)
+            self.fc2 = nn.Linear(16, 10)
+        else:
+            self.fc1 = nn.Linear(5*5*64, 128)
+            self.fc2 = nn.Linear(128, 10)
 
     def forward(self, x):
         x = self.conv1(x)
+        if self.use_bn:
+            x = self.bn(x)
         x = F.relu_(x)
         x = F.max_pool2d(x, 2)
         x = self.conv2(x)
+        if self.use_gp:
+            x = F.adaptive_avg_pool2d(x,(1,1))
+        else:
+            x = F.max_pool2d(x, 2)
         x = F.relu(x)
-        x = F.max_pool2d(x, 2)
         x = torch.flatten(x, 1)
         x = self.fc1(x)
         x = F.relu(x)
