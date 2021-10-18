@@ -13,7 +13,15 @@ It is only beginning, but you can train some vision nets using OpenCL devices.
 - VGG16
 - MobileNetv2
 
-Results compared on inference
+Results of inference validated agaist reference
+
+# Tested Devices
+
+DLPrimitves itself is tested on following devies: 
+
+- Nvidia: gtx 1080, rtx 2060s, gtx 960
+- AMD: rx 6600 xt and in past rx 560
+- Intel: HD530
 
 # Benchmarks
 
