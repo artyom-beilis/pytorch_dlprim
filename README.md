@@ -17,6 +17,8 @@ Results compared on inference
 
 # Benchmarks
 
+All benchmarks done on gtx 960/4G to get comparison to native cuda speed.
+
 ## Test
 
 Test includes copy of data to/from device and forward calculations
