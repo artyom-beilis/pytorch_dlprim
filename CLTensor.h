@@ -131,7 +131,7 @@ namespace ptdlprim {
         static CLContextManager &instance()
         {
             static std::once_flag once;
-            static CLContextManager *inst=nullptr;
+            static std::unique_ptr<CLContextManager> inst;
             std::call_once(once,init,inst);
             return *inst;
         }
@@ -207,9 +207,9 @@ namespace ptdlprim {
 
 
 
-        static void init(CLContextManager *&self)
+        static void init(std::unique_ptr<CLContextManager> &self)
         {
-            self = new CLContextManager();
+            self.reset(new CLContextManager());
             self->allocate();
         }
         void allocate()
