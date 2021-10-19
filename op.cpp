@@ -122,7 +122,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
 
     torch::Tensor _reshape_alias(const Tensor & self, c10::IntArrayRef size, c10::IntArrayRef stride)
     {
-        torch::Tensor data(self);
+        torch::Tensor data = at::alias(self);
         data.getIntrusivePtr()->set_sizes_and_strides(size,stride);
         return data;
     }
