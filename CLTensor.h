@@ -291,7 +291,8 @@ namespace ptdlprim {
     inline cl::Buffer buffer_from_tensor(torch::Tensor const &tt)
     {
         TORCH_CHECK(tt.device().type() == c10::DeviceType::OPENCL,"OpenCL device is required for tensor");
-        cl_mem p=static_cast<cl_mem>(tt.data_ptr());
+        TORCH_CHECK(tt.numel() > 0,"Buffer is not valid for unallocated defvice");
+        cl_mem p=static_cast<cl_mem>(tt.getIntrusivePtr()->storage().data());
         cl::Buffer buf(p,true);
         return buf;
     }

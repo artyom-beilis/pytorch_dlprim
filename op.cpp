@@ -122,10 +122,37 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
 
     torch::Tensor _reshape_alias(const Tensor & self, c10::IntArrayRef size, c10::IntArrayRef stride)
     {
-        torch::Tensor data(self);
+        torch::Tensor data = at::alias(self);
         data.getIntrusivePtr()->set_sizes_and_strides(size,stride);
         return data;
     }
+
+    Tensor view(const Tensor & self, IntArrayRef size)
+    {
+        torch::Tensor data=at::alias(self);
+        std::vector<int64_t> v(size.begin(),size.end());
+        int64_t total=1,index=-1;
+        for(unsigned i=0;i<v.size();i++) {
+            if(v[i] == -1) {
+                TORCH_CHECK(index==-1,"Must be unique -1");
+                index=i;
+            }
+            else {
+                total *= v[i];
+            }
+        }
+        if(index != -1) {
+            TORCH_CHECK(self.numel() % total == 0);
+            v[index] = self.numel() / total;
+        }
+        else {
+            TORCH_CHECK(total == self.numel());
+        }
+        c10::IntArrayRef new_size(v.data(),v.size());
+        data.getIntrusivePtr()->set_sizes_contiguous(new_size);
+        return data;
+    }
+
     Tensor &fill_(Tensor &self, const c10::Scalar &value)
     {
         dlprim::Tensor t(todp(self));
@@ -772,7 +799,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         double scale=0;
         dlprim::Tensor x0=todp(self.contiguous());
         dlprim::Tensor y0=todp(out);
-        
+
         if(isCPUScalar(other,scale)) {
             dlprim::core::pointwise_operation({x0},{y0},{float(scale)},
                                           "y0 = x0*w0;",
@@ -1023,6 +1050,163 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         return result;
     }
 
+    // {"schema": "aten::abs.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor abs(const Tensor & self)
+    {
+        dlprim::Tensor x=todp(self.contiguous());
+        Tensor out = new_tensor_as(x.shape(),self);
+        dlprim::Tensor y=todp(out);
+        dlprim::core::pointwise_operation({x},{y},{},"y0 = x0 < 0 ? -x0 : x0;",getExecutionContext(self));
+        sync_if_needed(self.device());
+        return out;
+    }
+
+    // {"schema": "aten::_cat(Tensor[] tensors, int dim=0) -> Tensor", "dispatch": "True", "default": "False"}
+    Tensor _cat(TensorList tensors, int64_t dim)
+    {
+        std::vector<dlprim::Tensor> list;
+        for(auto const &t:tensors) {
+            list.push_back(todp(t));
+        }
+        size_t total_shape = 0;
+        dlprim::Shape ref;
+        for(size_t i=0;i<list.size();i++) {
+            TORCH_CHECK(0<=dim && dim < list[i].shape().size(),"dim does not match shape")
+            if(i==0) {
+                ref = list[i].shape();
+            }
+            else {
+                dlprim::Shape s1 = ref, s2 = list[i].shape();
+                s1[dim]=1; s2[dim]=1;
+                TORCH_CHECK(s1==s2,"Shapes do not match");
+            }
+            total_shape+=list[i].shape()[dim];
+        }
+        ref[dim]=total_shape;
+        Tensor out = new_tensor_as(ref,tensors[0]);
+        dlprim::Tensor Y=todp(out);
+        dlprim::ExecutionContext q(getExecutionContext(tensors[0]));
+        dlprim::Context ctx(q);
+        
+        dlprim::core::SliceCopy cp(ctx,todp(tensors[0].dtype()));
+
+        for(size_t i=0,pos=0;i<list.size();i++) {
+            size_t slice = list[i].shape()[dim];
+            cp.tensor_slice_copy(dim,slice,
+                                      Y,pos,
+                                      list[i],0,
+                                      0.0,q);
+            pos += slice;
+        }
+        sync_if_needed(tensors[0].device());
+        return out;
+    }
+
+    // {"schema": "aten::avg_pool2d.out(Tensor self, int[2] kernel_size, int[2] stride=[], int[2] padding=0, bool ceil_mode=False, bool count_include_pad=True, int? divisor_override=None, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & avg_pool2d_out(const Tensor & self, IntArrayRef kernel_size, IntArrayRef stride, IntArrayRef padding, bool ceil_mode, bool count_include_pad, c10::optional<int64_t> divisor_override, Tensor & out)
+    {
+        TORCH_CHECK(ceil_mode==false,"Ceil mode=true not implemented");
+        TORCH_CHECK(!divisor_override,"Divisor override is not implemented");
+        int ker[2] = {int(kernel_size[0]),int(kernel_size[1])};
+        int pad[2] = {int(padding[0]),    int(padding[1])};
+        int strd[2];
+        if(stride.empty()) {
+            strd[0]=ker[0];
+            strd[1]=ker[1]; 
+        }
+        else {
+            strd[0]=stride[0];
+            strd[1]=stride[1];
+        };
+        dlprim::Tensor X=todp(self.contiguous());
+        dlprim::Tensor Y=todp(out);
+        dlprim::ExecutionContext q(getExecutionContext(self));
+        dlprim::Context ctx(q);
+        
+        auto pool = dlprim::core::Pooling2DForward::create_avg_pooling(
+                        ctx,
+                        ker,pad,strd,
+                        count_include_pad,todp(self.dtype())
+                    );                  
+        pool->enqueue(X,Y,q);    
+        sync_if_needed(self.device());
+        return out;
+    }
+
+    // {"schema": "aten::hardswish_(Tensor(a!) self) 
+    Tensor & hardswish_(Tensor & self)
+    {
+        dlprim::Tensor x=todp(self.contiguous());
+        dlprim::core::pointwise_operation({x},{x},{},"y0 = x0 <= -3 ? 0 : (x0>=3 ? x0 : x0*(x0+3)/6);",getExecutionContext(self));
+        sync_if_needed(self.device());
+        return self;
+    }
+    // {"schema": "aten::hardsigmoid.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & hardsigmoid_out(const Tensor & self, Tensor & out)
+    {
+        dlprim::Tensor x=todp(self.contiguous());
+        dlprim::Tensor y=todp(out);
+        dlprim::core::pointwise_operation({x},{y},{},"y0 = x0 <= -3 ? 0 : (x0>=3 ? 1 : x0/6 + 0.5);",getExecutionContext(self));
+        sync_if_needed(self.device());
+        return out;
+    }
+
+    // {"schema": "aten::sigmoid.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & sigmoid_out(const Tensor & self, Tensor & out)
+    {
+        dlprim::Tensor x=todp(self.contiguous());
+        dlprim::Tensor y=todp(out);
+        dlprim::core::activation_forward(x,y,dlprim::StandardActivations::sigmoid,getExecutionContext(self));
+        sync_if_needed(self.device());
+        return out;
+    }
+    // {"schema": "aten::sigmoid(Tensor self) -> Tensor", "dispatch": "True", "default": "True"}
+    Tensor sigmoid(const Tensor & self)
+    {
+        dlprim::Tensor x=todp(self.contiguous());
+        Tensor out = new_tensor_as(x.shape(),self);
+        dlprim::Tensor y=todp(out);
+        dlprim::core::activation_forward(x,y,dlprim::StandardActivations::sigmoid,getExecutionContext(self));
+        sync_if_needed(self.device());
+        return out;
+    }
+    // {"schema": "aten::sigmoid_(Tensor(a!) self) -> Tensor(a!)", "dispatch": "True", "default": "True"}
+    Tensor & sigmoid_(Tensor & self)
+    {
+        dlprim::Tensor X=todp(self);
+        dlprim::core::activation_forward(X,X,dlprim::StandardActivations::sigmoid,getExecutionContext(self));
+        sync_if_needed(self.device());
+        return self;
+    }
+
+    // {"schema": "aten::tanh.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & tanh_out(const Tensor & self, Tensor & out)
+    {
+        dlprim::Tensor x=todp(self.contiguous());
+        dlprim::Tensor y=todp(out);
+        dlprim::core::activation_forward(x,y,dlprim::StandardActivations::tanh,getExecutionContext(self));
+        sync_if_needed(self.device());
+        return out;
+    }
+    // {"schema": "aten::tanh(Tensor self) -> Tensor", "dispatch": "True", "default": "True"}
+    Tensor tanh(const Tensor & self)
+    {
+        dlprim::Tensor x=todp(self.contiguous());
+        Tensor out = new_tensor_as(x.shape(),self);
+        dlprim::Tensor y=todp(out);
+        dlprim::core::activation_forward(x,y,dlprim::StandardActivations::tanh,getExecutionContext(self));
+        sync_if_needed(self.device());
+        return out;
+    }
+    // {"schema": "aten::tanh_(Tensor(a!) self) -> Tensor(a!)", "dispatch": "True", "default": "True"}
+    Tensor & tanh_(Tensor & self)
+    {
+        dlprim::Tensor X=todp(self);
+        dlprim::core::activation_forward(X,X,dlprim::StandardActivations::tanh,getExecutionContext(self));
+        sync_if_needed(self.device());
+        return self;
+    }
+
 
 
 
@@ -1062,6 +1246,18 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::mean.out",&ptdlprim::mean_out);
       m.impl("aten::hardtanh_",&ptdlprim::hardtanh_);
       m.impl("aten::hardtanh_backward",&ptdlprim::hardtanh_backward);
+      m.impl("aten::abs",&ptdlprim::abs);
+      m.impl("aten::_cat",&ptdlprim::_cat);
+      m.impl("aten::avg_pool2d.out",&ptdlprim::avg_pool2d_out);
+      m.impl("aten::hardswish_",&ptdlprim::hardswish_);
+      m.impl("aten::hardsigmoid.out",&ptdlprim::hardsigmoid_out);
+      m.impl("aten::view",&ptdlprim::view);
+      m.impl("aten::sigmoid.out",&ptdlprim::sigmoid_out);
+      m.impl("aten::sigmoid",&ptdlprim::sigmoid);
+      m.impl("aten::sigmoid_",&ptdlprim::sigmoid_);
+      m.impl("aten::tanh.out",&ptdlprim::tanh_out);
+      m.impl("aten::tanh",&ptdlprim::tanh);
+      m.impl("aten::tanh_",&ptdlprim::tanh_);
 }
 
 TORCH_LIBRARY_IMPL(aten, AutogradPrivateUse1, m) {
