@@ -927,9 +927,31 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         GUARD;
         TORCH_CHECK(self.numel()==1);
         dlprim::Tensor x=todp(self);
-        float value=0;
-        x.to_host(getExecutionContext(self),&value);
-        return value;
+        x.to_host(getExecutionContext(self));
+        switch(x.dtype()) {
+        case dlprim::float_data:
+            return *x.data<float>();
+        case dlprim::double_data:
+            return *x.data<double>();
+        case dlprim::int8_data:
+            return *x.data<int8_t>();
+        case dlprim::uint8_data:
+            return *x.data<uint8_t>();
+        case dlprim::int16_data:
+            return *x.data<int16_t>();
+        case dlprim::uint16_data:
+            return *x.data<uint16_t>();
+        case dlprim::int32_data:
+            return (int64_t)*x.data<int32_t>();
+        case dlprim::uint32_data:
+            return (int64_t)*x.data<uint32_t>();
+        case dlprim::int64_data:
+            return (int64_t)*x.data<int64_t>();
+        case dlprim::uint64_data:
+            return (int64_t)*x.data<uint64_t>();
+        default:
+            TORCH_CHECK(!"Not implemented dtype","Not implemented");
+        }
     }
 
     // {"schema": "aten::threshold_backward.grad_input(Tensor grad_output, Tensor self, Scalar threshold, *, Tensor(a!) grad_input) -> Tensor(a!)", "dispatch": "True", "default": "False"}
@@ -1109,7 +1131,9 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     {
         GUARD;
         std::vector<size_t> full,squeezed;
-        std::vector<int> dims(dim.begin(),dim.end());
+        std::vector<int> dims;
+        dims.assign(dim.begin(),dim.end());
+
         for(auto &axis : dims) {
             if (axis < 0) {
                 axis = axis + s.size();
@@ -1130,8 +1154,12 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
             }
         }
         TORCH_CHECK(pos == int(dims.size()),"Looks like invalid dims");
-        return std::make_pair(dlprim::Shape::from_range(full.begin(),full.end()),
-                              dlprim::Shape::from_range(squeezed.begin(),squeezed.end()));
+        auto full_shape = dlprim::Shape::from_range(full.begin(),full.end());
+        auto squeezed_shape = dlprim::Shape::from_range(squeezed.begin(),squeezed.end());
+        if(squeezed_shape.size() == 0) {
+            squeezed_shape = dlprim::Shape(1);
+        }
+        return std::make_pair(full_shape,squeezed_shape);
     }
 
     Tensor & sum_mean_out(const Tensor & self, IntArrayRef dim, bool keepdim, c10::optional<ScalarType> /*dtype*/, Tensor & out,bool mean)
@@ -1482,6 +1510,52 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         sync_if_needed(self.device());
         return self;
     }
+    
+    // {"schema": "aten::argmax.out(Tensor self, int? dim=None, bool keepdim=False, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & argmax_out(const Tensor & self, c10::optional<int64_t> dim, bool keepdim, Tensor & out)
+    {
+        GUARD;
+        dlprim::Tensor X = todp(self.contiguous());
+        dlprim::Tensor Yind = todp(out);
+        std::vector<int64_t> dims;
+        if(dim) {
+            dims.push_back(*dim);
+        }
+        else {
+            for(int i=0;i<X.shape().size();i++)
+                dims.push_back(i);
+        }
+        c10::IntArrayRef sqdims(dims.data(),dims.size());
+        auto r = squeeze_dim(X.shape(),sqdims,keepdim);
+        TORCH_CHECK(r.second == Yind.shape(),"Invalid output shape");
+        Yind.reshape(r.first);
+
+        WSGuard tmp_guard(Yind.shape().total_size()*dlprim::size_of_data_type(X.dtype()),
+                         self.device());
+        dlprim::Tensor Yval = tmp_guard.ws.sub_tensor(0,Yind.shape(),X.dtype());
+
+        dlprim::ExecutionContext q=getExecutionContext(self);
+        dlprim::Context ctx(q);
+        std::string min_val = dlprim::data_type_to_opencl_numeric_limit(X.dtype(),dlprim::dt_min_val);
+        auto op = dlprim::core::PointwiseOperationBroadcastReduce::create(
+                    ctx,
+                    {X.specs()},{Yval.specs(),Yind.specs()},
+                    0,dlprim::float_data,
+                    "y0=x0; y1=reduce_item;",
+                    "reduce_y0 = " + min_val + "; reduce_y1 = -1;",
+                    R"xxx(
+                        if(y0 > reduce_y0) {
+                            reduce_y0 = y0; 
+                            reduce_y1 = y1; 
+                        }
+                    )xxx"
+                    );
+        WSGuard ws_guard(op->workspace(),self.device());
+        op->enqueue({X},{Yval,Yind},ws_guard.ws,{},{1,1},{0,0},q);
+
+        sync_if_needed(self.device());
+        return out;
+    }
 
 
 
@@ -1540,6 +1614,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::tanh",&ptdlprim::tanh);
       m.impl("aten::tanh_",&ptdlprim::tanh_);
       m.impl("aten::hardswish_backward",&ptdlprim::hardswish_backward);
+      m.impl("aten::argmax.out",&ptdlprim::argmax_out);
 }
 
 TORCH_LIBRARY_IMPL(aten, AutogradPrivateUse1, m) {
