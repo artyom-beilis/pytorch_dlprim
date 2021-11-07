@@ -79,6 +79,48 @@ private:
 thread_local Device OCLDevImpl::dt_ = Device(DeviceType::OPENCL,0);
 thread_local Stream OCLDevImpl::s_  = Stream(c10::Stream::UNSAFE,Device(DeviceType::OPENCL,0),0);
 
+//#define LOG_CALLS 
+#define LOG_EXCEPTIONS
+
+#if defined(BM_CALLS)
+#define GUARD dlprim::ExecGuard exec_guard(getExecutionContext(ocl_impl_instance.getDevice()),__func__);
+#elif defined(LOG_EXCEPTIONS)
+struct ExcGuard {
+    ExcGuard(char const *name) : name_(name)
+    {
+    }
+    ~ExcGuard()
+    {
+        if(std::uncaught_exception()) {
+            std::cerr << "Exception from : " << name_ << std::endl;
+        }
+    }
+    char const *name_;
+};
+#define GUARD ExcGuard debug_guard(__PRETTY_FUNCTION__);
+#elif defined(LOG_CALLS)
+std::atomic<int> indent;
+struct LogGuard {
+    LogGuard(char const *name) : name_(name)
+    {
+        int v=indent++;
+        for(int i=0;i<v;i++)
+            std::cout << "  ";
+        std::cout << "in:  " << name_ << std::endl;
+    }
+    ~LogGuard()
+    {
+        indent--;
+    }
+    char const *name_;
+};
+#define GUARD LogGuard debug_guard(__PRETTY_FUNCTION__);
+#else
+#define GUARD
+#endif
+
+
+
 // register backend
 c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_impl_instance);
 
@@ -86,6 +128,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     
     torch::Tensor allocate_empty(torch::IntArrayRef size, c10::optional<ScalarType> dtype, c10::optional<Layout> /*layout*/, c10::optional<Device> device, c10::optional<bool> /*pin_memory*/, c10::optional<MemoryFormat> /*memory_format*/)
     {
+        GUARD;
         c10::ScalarType st = dtype ? *dtype : c10::kFloat; 
         c10::Device dev = device ? *device : Device(c10::DeviceType::OPENCL,0);
         return ptdlprim::new_ocl_tensor(size,dev,st);
@@ -94,6 +137,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     /// "aten::empty_strided"
     Tensor empty_strided(torch::IntArrayRef size, torch::IntArrayRef /*stride*/, c10::optional<ScalarType> dtype, c10::optional<Layout> layout, c10::optional<Device> device, c10::optional<bool> pin_memory) 
     {
+        GUARD;
         return allocate_empty(size,dtype,layout,device,pin_memory,c10::nullopt);
     }
 
@@ -122,6 +166,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
 
     torch::Tensor _reshape_alias(const Tensor & self, c10::IntArrayRef size, c10::IntArrayRef stride)
     {
+        GUARD;
         torch::Tensor data = at::alias(self);
         data.getIntrusivePtr()->set_sizes_and_strides(size,stride);
         return data;
@@ -129,7 +174,9 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
 
     Tensor view(const Tensor & self, IntArrayRef size)
     {
+        GUARD;
         torch::Tensor data=at::alias(self);
+        TORCH_CHECK(data.is_contiguous(),"View imlemented on contigonous array");
         std::vector<int64_t> v(size.begin(),size.end());
         int64_t total=1,index=-1;
         for(unsigned i=0;i<v.size();i++) {
@@ -155,6 +202,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
 
     Tensor &fill_(Tensor &self, const c10::Scalar &value)
     {
+        GUARD;
         dlprim::Tensor t(todp(self));
         auto q = getExecutionContext(self);
         dlprim::core::fill_tensor(t,value.to<double>(),q);
@@ -163,6 +211,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     }
     Tensor &zero_(Tensor &self)
     {
+        GUARD;
         dlprim::Tensor t(todp(self));
         dlprim::core::fill_tensor(t,0.0,getExecutionContext(self));
         return self;
@@ -171,6 +220,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
 
     Tensor _copy_from(const Tensor & self, const Tensor & dst, bool /*non_blocking*/)
     {
+        GUARD;
         if(dst.device().type() == c10::DeviceType::CPU && self.device().type() == c10::DeviceType::OPENCL) {
             dlprim::Tensor t(todp(self));
             TORCH_CHECK(dst.is_contiguous(),"cpu/gpu need to be contiguous");
@@ -228,6 +278,8 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         dlprim::core::Conv2DSettings cfg(cfg_base,X.shape(),X.dtype()); 
         return cfg;
     }
+
+
     dlprim::Tensor make_workspace(at::DataPtr &ws_ptr,size_t ws_size,Device const &dev)
     {
         dlprim::Tensor ws;
@@ -237,6 +289,17 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         }
         return ws;
     }
+
+    class WSGuard {
+    public:
+        WSGuard(size_t size,Device const &dev)
+        {
+            ws = make_workspace(ws_ptr_,size,dev);
+        }
+        dlprim::Tensor ws;
+    private:
+        at::DataPtr ws_ptr_;
+    };
 
     torch::Tensor new_tensor_as(dlprim::Shape const &s,torch::Tensor const &as)
     {
@@ -259,6 +322,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
                                     IntArrayRef /*output_padding*/,
                                     int64_t groups)
     {
+        GUARD;
         TORCH_CHECK(!transposed,"Transposed not implemeted yet");
         dlprim::Tensor X = todp(input.contiguous());
         dlprim::Tensor W = todp(weight);
@@ -290,6 +354,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
 
     Tensor & relu_(Tensor & self)
     {
+        GUARD;
         dlprim::Tensor X = todp(self);
         dlprim::ExecutionContext q = getExecutionContext(self);
         dlprim::core::activation_forward(X,X,dlprim::StandardActivations::relu,q);
@@ -300,6 +365,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
 
     Tensor _adaptive_avg_pool2d(const Tensor & self, IntArrayRef output_size) // {"schema": "aten::_adaptive_avg_pool2d
     {
+        GUARD;
         dlprim::Tensor X = todp(self.contiguous());
         int h=X.shape()[2];
         int w=X.shape()[3];
@@ -326,6 +392,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     // {"schema": "aten::_adaptive_avg_pool2d_backward(Tensor grad_output, Tensor self) -> Tensor", "dispatch": "True", "default": "False"}
     Tensor _adaptive_avg_pool2d_backward(const Tensor & grad_output, const Tensor & self)
     {
+        GUARD;
         dlprim::Tensor X = todp(self.contiguous());
         dlprim::Tensor dy = todp(grad_output.contiguous());
         torch::Tensor result;
@@ -352,6 +419,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     public:
         static Tensor forward(AutogradContext *ctx,const Tensor & input, const Tensor & weight, const c10::optional<Tensor> & bias)
         {
+            GUARD;
             at::AutoDispatchBelowADInplaceOrView g;
 
             Tensor cinput = input.contiguous();
@@ -380,6 +448,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
             return result;
         }
         static tensor_list backward(AutogradContext *ctx, tensor_list grad_outputs) {
+            GUARD;
             dlprim::Tensor X = todp(ctx->get_saved_variables()[0]);
             dlprim::Tensor W = todp(ctx->get_saved_variables()[1]);
             Tensor dy_tensor = grad_outputs[0].contiguous();
@@ -422,10 +491,12 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     };
     Tensor linear(const Tensor & input, const Tensor & weight, const c10::optional<Tensor> & bias)
     {
+        GUARD;
         return linear_cls::apply(input,weight,bias);
     }
     Tensor as_strided(const Tensor & self, IntArrayRef size, IntArrayRef stride, c10::optional<int64_t> storage_offset)
     {
+        GUARD;
         Tensor result = at::alias(self);
         result.getIntrusivePtr()->set_sizes_and_strides(size,stride);
         if(storage_offset)
@@ -437,6 +508,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     // {"schema": "aten::_log_softmax.out(Tensor self, int dim, bool half_to_float, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & _log_softmax_out(const Tensor & self, int64_t dim, bool /*half_to_float*/, Tensor & out)
     {
+        GUARD;
         TORCH_CHECK(dim==1,"Only case dim=1 is supported currently");
         dlprim::Tensor x=todp(self.contiguous());
         dlprim::Tensor y=todp(out);
@@ -448,6 +520,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     // {"schema": "aten::nll_loss_forward.output(Tensor self, Tensor target, Tensor? weight, int reduction, int ignore_index, *, Tensor(a!) output, Tensor(b!) total_weight) -> (Tensor(a!), Tensor(b!))", "dispatch": "True", "default": "False"}
     ::std::tuple<Tensor &,Tensor &> nll_loss_forward_out(const Tensor & self, const Tensor & target, const c10::optional<Tensor> & weight, int64_t reduction, int64_t ignore_index, Tensor & output, Tensor & total_weight)
     {
+        GUARD;
         TORCH_CHECK(!weight || weight->numel()==0,"Weight NLLLoss isn't supported");
         TORCH_CHECK(ignore_index <0,"Ignore index isn't supported");
         dlprim::Tensor x=todp(self.contiguous());
@@ -468,6 +541,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     // {"schema": "aten::nll_loss_backward.grad_input(Tensor grad_output, Tensor self, Tensor target, Tensor? weight, int reduction, int ignore_index, Tensor total_weight, *, Tensor(a!) grad_input) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & nll_loss_backward_out(const Tensor & grad_output, const Tensor & self, const Tensor & target, const c10::optional<Tensor> & weight, int64_t reduction, int64_t ignore_index, const Tensor & /*total_weight*/, Tensor & grad_input)
     {
+        GUARD;
         TORCH_CHECK(!weight || weight->numel()==0,"Weight NLLLoss isn't supported");
         TORCH_CHECK(ignore_index <0,"Ignore index isn't supported");
         dlprim::Tensor dx=todp(grad_input);
@@ -488,6 +562,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     // {"schema": "aten::_log_softmax_backward_data.out(Tensor grad_output, Tensor output, int dim, ScalarType input_dtype, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & _log_softmax_backward_data_out(const Tensor & grad_output, const Tensor & output, int64_t dim, ScalarType /*input_dtype*/, Tensor & out)
     {
+        GUARD;
         dlprim::Tensor dx = todp(out);
         dlprim::Tensor y = todp(output.contiguous());
         dlprim::Tensor dy = todp(grad_output.contiguous());
@@ -501,6 +576,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     // {"schema": "aten::convolution_backward_overrideable(Tensor grad_output, Tensor input, Tensor weight, int[] stride, int[] padding, int[] dilation, bool transposed, int[] output_padding, int groups, bool[3] output_mask) -> (Tensor grad_input, Tensor grad_weight, Tensor grad_bias)", "dispatch": "True", "default": "True"}
     ::std::tuple<Tensor,Tensor,Tensor> convolution_backward_overrideable(const Tensor & grad_output, const Tensor & input, const Tensor & weight, IntArrayRef stride, IntArrayRef padding, IntArrayRef dilation, bool transposed, IntArrayRef /*output_padding*/, int64_t groups, ::std::array<bool,3> output_mask)
     {
+        GUARD;
         TORCH_CHECK(!transposed,"Transposed conv not implemented yet");
         dlprim::Tensor dy = todp(grad_output.contiguous());
         dlprim::Tensor x  = todp(input.contiguous());
@@ -548,6 +624,8 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
             dlprim::Tensor dB = todp(bias_diff);
             bwd_bias->enqueue(dy,dB,ws,0,q);
         }
+        
+        sync_if_needed(grad_output.device());
 
         return std::tuple<torch::Tensor,torch::Tensor,torch::Tensor>(data_diff,filter_diff,bias_diff);
     }
@@ -557,6 +635,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     public:
         static torch::Tensor forward(AutogradContext *ctx, torch::Tensor x) 
         {
+            GUARD;
             at::AutoDispatchBelowADInplaceOrView g;
             
             dlprim::Tensor X = todp(x.contiguous());
@@ -569,6 +648,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
             return result;
         }
         static tensor_list backward(AutogradContext *ctx, tensor_list grad_outputs) {
+            GUARD;
             auto grad_output = grad_outputs[0].contiguous();
             torch::Tensor result = ctx->get_saved_variables()[0];
             dlprim::Tensor dy=todp(grad_output);
@@ -583,6 +663,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
 
     template<dlprim::StandardActivations Act>
     torch::Tensor act_autograd(torch::Tensor const &x) {
+        GUARD;
         return act_cls<Act>::apply(x);
     }
 
@@ -627,6 +708,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     public:
         static torch::Tensor forward(AutogradContext *ctx,torch::Tensor const &self, IntArrayRef kernel_size, IntArrayRef stride, IntArrayRef padding, IntArrayRef dilation, bool ceil_mode) 
         {
+            GUARD;
             at::AutoDispatchBelowADInplaceOrView g;
 
             TORCH_CHECK(kernel_size.size()==2,"Invalid sizes");
@@ -674,6 +756,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
             return out;
         }
         static tensor_list backward(AutogradContext *ctx, tensor_list grad_outputs) {
+            GUARD;
             torch::Tensor grad_output = grad_outputs[0];
             torch::Tensor input = ctx->get_saved_variables()[0];
             int kernel[2],pad[2],strd[2];
@@ -703,11 +786,13 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
 
     // {"schema": "aten::max_pool2d(Tensor self, int[2] kernel_size, int[2] stride=[], int[2] padding=0, int[2] dilation=1, bool ceil_mode=False) -> Tensor", "dispatch": "False", "default": "True"}
     torch::Tensor max_pool2d_autograd(torch::Tensor const &self, IntArrayRef kernel_size, IntArrayRef stride, IntArrayRef padding, IntArrayRef dilation, bool ceil_mode) {
+        GUARD;
         return max_pool2d_cls::apply(self,kernel_size,stride,padding,dilation,ceil_mode);
     }
 
     Tensor & mul_scalar_(Tensor & self, const Scalar & other)
     {
+        GUARD;
         dlprim::Tensor x0=todp(self);
         float scale = other.to<double>();
         dlprim::core::pointwise_operation({x0},{x0},{scale},
@@ -720,8 +805,9 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     // {"schema": "aten::add.out(Tensor self, Tensor other, *, Scalar alpha=1, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & add_out(const Tensor & self, const Tensor & other, const Scalar & alpha, Tensor & out)
     {
+        GUARD;
         dlprim::Tensor x0=todp(self.contiguous());
-        dlprim::Tensor y0=todp(out.contiguous());
+        dlprim::Tensor y0=todp(out);
         double value=0;
         if(isCPUScalar(other,value)) {
             float w0 = alpha.toDouble() * value;
@@ -732,7 +818,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         else {
             dlprim::Tensor x1=todp(other.contiguous());
             float w0 = alpha.toDouble();
-            dlprim::core::pointwise_operation({x0,x1},{y0},{w0},
+            dlprim::core::pointwise_operation_broadcast({x0,x1},{y0},{w0},
                                       "y0 = x0 + x1 * w0;",
                                       getExecutionContext(self));
         }
@@ -744,12 +830,13 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     // {"schema": "aten::addcmul.out(Tensor self, Tensor tensor1, Tensor tensor2, *, Scalar value=1, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & addcmul_out(const Tensor & self, const Tensor & tensor1, const Tensor & tensor2, const Scalar & value, Tensor & out)
     {
+        GUARD;
         dlprim::Tensor x0=todp(self.contiguous());
         dlprim::Tensor x1=todp(tensor1.contiguous());
         dlprim::Tensor x2=todp(tensor2.contiguous());
         dlprim::Tensor y0=todp(out);
         float w0 = value.toDouble();
-        dlprim::core::pointwise_operation({x0,x1,x2},{y0},{w0},
+        dlprim::core::pointwise_operation_broadcast({x0,x1,x2},{y0},{w0},
                                       "y0 = x0 + w0 * x1 * x2;",
                                       getExecutionContext(self));
         
@@ -760,6 +847,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     // {"schema": "aten::sqrt.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & sqrt_out(const Tensor & self, Tensor & out)
     {
+        GUARD;
         dlprim::Tensor x0=todp(self.contiguous());
         dlprim::Tensor y0=todp(out);
         dlprim::core::pointwise_operation({x0},{y0},{},
@@ -774,6 +862,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     // {"schema": "aten::div.out(Tensor self, Tensor other, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & div_out(const Tensor & self, const Tensor & other, Tensor & out)
     {
+        GUARD;
         dlprim::Tensor x0=todp(self.contiguous());
         dlprim::Tensor y0=todp(out);
         double value=0;
@@ -784,7 +873,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         }
         else {
             dlprim::Tensor x1=todp(other.contiguous());
-            dlprim::core::pointwise_operation({x0,x1},{y0},{},
+            dlprim::core::pointwise_operation_broadcast({x0,x1},{y0},{},
                                         "y0 = x0/x1;",
                                         getExecutionContext(self));
         }
@@ -796,6 +885,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
    
     Tensor & mul_out(const Tensor & self, const Tensor & other, Tensor & out)
     {
+        GUARD;
         double scale=0;
         dlprim::Tensor x0=todp(self.contiguous());
         dlprim::Tensor y0=todp(out);
@@ -807,7 +897,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         }
         else {
             dlprim::Tensor x1=todp(other.contiguous());
-            dlprim::core::pointwise_operation({x0,x1},{y0},{},
+            dlprim::core::pointwise_operation_broadcast({x0,x1},{y0},{},
                                           "y0 = x0*x1;",
                                           getExecutionContext(self));
         }
@@ -818,12 +908,13 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     // {"schema": "aten::addcdiv.out(Tensor self, Tensor tensor1, Tensor tensor2, *, Scalar value=1, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & addcdiv_out(const Tensor & self, const Tensor & tensor1, const Tensor & tensor2, const Scalar & value, Tensor & out)
     {
+        GUARD;
         dlprim::Tensor x0 = todp(self.contiguous());
         dlprim::Tensor x1 = todp(tensor1.contiguous());
         dlprim::Tensor x2 = todp(tensor2.contiguous());
         dlprim::Tensor y0 = todp(out);
         float w0 = value.toDouble();
-        dlprim::core::pointwise_operation({x0,x1,x2},{y0},{w0},
+        dlprim::core::pointwise_operation_broadcast({x0,x1,x2},{y0},{w0},
                                       "y0 = x0 + w0 * (x1/x2);",
                                       getExecutionContext(self));
 
@@ -833,16 +924,40 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     // {"schema": "aten::_local_scalar_dense(Tensor self) -> Scalar", "dispatch": "True", "default": "False"}
     Scalar _local_scalar_dense(const Tensor & self)
     {
+        GUARD;
         TORCH_CHECK(self.numel()==1);
         dlprim::Tensor x=todp(self);
-        float value=0;
-        x.to_host(getExecutionContext(self),&value);
-        return value;
+        x.to_host(getExecutionContext(self));
+        switch(x.dtype()) {
+        case dlprim::float_data:
+            return *x.data<float>();
+        case dlprim::double_data:
+            return *x.data<double>();
+        case dlprim::int8_data:
+            return *x.data<int8_t>();
+        case dlprim::uint8_data:
+            return *x.data<uint8_t>();
+        case dlprim::int16_data:
+            return *x.data<int16_t>();
+        case dlprim::uint16_data:
+            return *x.data<uint16_t>();
+        case dlprim::int32_data:
+            return (int64_t)*x.data<int32_t>();
+        case dlprim::uint32_data:
+            return (int64_t)*x.data<uint32_t>();
+        case dlprim::int64_data:
+            return (int64_t)*x.data<int64_t>();
+        case dlprim::uint64_data:
+            return (int64_t)*x.data<uint64_t>();
+        default:
+            TORCH_CHECK(!"Not implemented dtype","Not implemented");
+        }
     }
 
     // {"schema": "aten::threshold_backward.grad_input(Tensor grad_output, Tensor self, Scalar threshold, *, Tensor(a!) grad_input) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & threshold_backward_out(const Tensor & grad_output, const Tensor & self, const Scalar & threshold, Tensor & grad_input)
     {
+        GUARD;
         dlprim::Tensor dy=todp(grad_output.contiguous());
         dlprim::Tensor dx=todp(grad_input);
         dlprim::Tensor Y=todp(self.contiguous());
@@ -854,6 +969,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     // {"schema": "aten::bernoulli_.float(Tensor(a!) self, float p=0.5, *, Generator? generator=None) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & bernoulli_(Tensor & self, double p, c10::optional<Generator> generator)
     {
+        GUARD;
         static dlprim::RandomState state(time(0));
         dlprim::Tensor rnd=todp(self);
         size_t rounds = (rnd.shape().total_size() +  dlprim::philox::result_items - 1) / dlprim::philox::result_items;
@@ -868,6 +984,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     // {"schema": "aten::native_batch_norm(Tensor input, Tensor? weight, Tensor? bias, Tensor? running_mean, Tensor? running_var, bool training, float momentum, float eps) -> (Tensor, Tensor, Tensor)", "dispatch": "True", "default": "False"}
     ::std::tuple<Tensor,Tensor,Tensor> native_batch_norm(const Tensor & input, const c10::optional<Tensor> & weight, const c10::optional<Tensor> & bias, const c10::optional<Tensor> & running_mean, const c10::optional<Tensor> & running_var, bool training, double momentum, double eps)
     {
+        GUARD;
         bool weight_present = weight && weight->numel()>0; 
         bool bias_present = bias && bias->numel()>0; 
         bool mean_present = running_mean && running_mean->numel() > 0;
@@ -943,6 +1060,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
                                                                   double eps,
                                                                   ::std::array<bool,3> output_mask)
     {
+        GUARD;
         bool weight_present = weight && weight->numel()>0; 
         bool affine = weight_present;
         dlprim::ExecutionContext q=getExecutionContext(input);
@@ -1009,25 +1127,91 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         return std::tuple<torch::Tensor,torch::Tensor,torch::Tensor>(x_diff,gamma_diff,beta_diff);
     }
 
-    // {"schema": "aten::mean.out(Tensor self, int[1] dim, bool keepdim=False, *, ScalarType? dtype=None, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
-    Tensor & mean_out(const Tensor & self, IntArrayRef dim, bool keepdim, c10::optional<ScalarType> /*dtype*/, Tensor & out)
+    std::pair<dlprim::Shape,dlprim::Shape> squeeze_dim(dlprim::Shape s,IntArrayRef dim,bool keepdim)
     {
-        TORCH_CHECK(dim.size() == 2 && dim[0]==-1 && dim[1]==-2,"Only global pooling supported");
-        TORCH_CHECK(keepdim,"Only keep dim supported")
-        dlprim::Tensor X = todp(self.contiguous());
-        dlprim::Tensor Y = todp(out);
+        GUARD;
+        std::vector<size_t> full,squeezed;
+        std::vector<int> dims;
+        dims.assign(dim.begin(),dim.end());
 
-        dlprim::ExecutionContext q = getExecutionContext(self);
+        for(auto &axis : dims) {
+            if (axis < 0) {
+                axis = axis + s.size();
+            }
+        }
+        std::sort(dims.begin(),dims.end());
+        int pos = 0;
+        for(int i=0;i<s.size();i++) {
+            if(pos < int(dims.size()) && i==dims[pos]) {
+                full.push_back(1);
+                if(keepdim)
+                    squeezed.push_back(1);
+                pos++;
+            }
+            else {
+                full.push_back(s[i]);
+                squeezed.push_back(s[i]);
+            }
+        }
+        TORCH_CHECK(pos == int(dims.size()),"Looks like invalid dims");
+        auto full_shape = dlprim::Shape::from_range(full.begin(),full.end());
+        auto squeezed_shape = dlprim::Shape::from_range(squeezed.begin(),squeezed.end());
+        if(squeezed_shape.size() == 0) {
+            squeezed_shape = dlprim::Shape(1);
+        }
+        return std::make_pair(full_shape,squeezed_shape);
+    }
+
+    Tensor & sum_mean_out(const Tensor & self, IntArrayRef dim, bool keepdim, c10::optional<ScalarType> /*dtype*/, Tensor & out,bool mean)
+    {
+        GUARD;
+        dlprim::Tensor X = todp(self.contiguous());
+        auto r = squeeze_dim(X.shape(),dim,keepdim);
+        dlprim::Tensor Y = todp(out);
+        TORCH_CHECK(r.second == Y.shape(),"Invalid output shape");
+        Y.reshape(r.first);
+
+        double scale = mean ? double(Y.shape().total_size()) / double(X.shape().total_size()) : 1;
+
+        auto q = getExecutionContext(self);
         dlprim::Context ctx(q);
-        auto pool = dlprim::core::Pooling2DForward::create_global_avg_pooling(ctx,X.shape(),todp(self.dtype()));
-        pool->enqueue(X,Y,q);
+        auto op = dlprim::core::PointwiseOperationBroadcastReduce::create(
+                ctx,
+                {X.specs()},{Y.specs()},
+                0,dlprim::float_data,
+                "y0=x0;",
+                "reduce_y0 = 0;",
+                "reduce_y0 += y0;");
+
+        WSGuard wsg(op->workspace(),self.device());
+        op->enqueue({X},{Y},wsg.ws,{},{scale},{0},q);
+
         sync_if_needed(self.device());
         return out;
     }
 
+
+    // {"schema": "aten::mean.out(Tensor self, int[1] dim, bool keepdim=False, *, ScalarType? dtype=None, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & mean_out(const Tensor & self, IntArrayRef dim, bool keepdim, c10::optional<ScalarType> dtype, Tensor & out)
+    {
+        GUARD;
+        return sum_mean_out(self,dim,keepdim,dtype,out,true);
+    }
+    
+    // {"schema": "aten::sum.IntList_out(Tensor self, int[1] dim, bool keepdim=False, *, ScalarType? dtype=None, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & sum_out(const Tensor & self, IntArrayRef dim, bool keepdim, c10::optional<ScalarType> dtype, Tensor & out)
+    {
+        GUARD;
+        return sum_mean_out(self,dim,keepdim,dtype,out,false);
+    }
+
+
+
+
     // {"schema": "aten::hardtanh_(Tensor(a!) self, Scalar min_val=-1, Scalar max_val=1) -> Tensor(a!)", "dispatch": "True", "default": "False"} 
     Tensor & hardtanh_(Tensor & self, const Scalar & min_val, const Scalar & max_val)
     {
+        GUARD;
         dlprim::Tensor X=todp(self);
         double w0 = min_val.toDouble();
         double w1 = max_val.toDouble();
@@ -1039,6 +1223,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     // {"schema": "aten::hardtanh_backward(Tensor grad_output, Tensor self, Scalar min_val, Scalar max_val) -> Tensor", "dispatch": "True", "default": "False"}
     Tensor hardtanh_backward(const Tensor & grad_output, const Tensor & self, const Scalar & min_val, const Scalar & max_val)
     {
+        GUARD;
         dlprim::Tensor dY = todp(grad_output);
         dlprim::Tensor X  = todp(self);
         Tensor result = new_tensor_as(X.shape(),self);
@@ -1053,6 +1238,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     // {"schema": "aten::abs.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor abs(const Tensor & self)
     {
+        GUARD;
         dlprim::Tensor x=todp(self.contiguous());
         Tensor out = new_tensor_as(x.shape(),self);
         dlprim::Tensor y=todp(out);
@@ -1064,9 +1250,10 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     // {"schema": "aten::_cat(Tensor[] tensors, int dim=0) -> Tensor", "dispatch": "True", "default": "False"}
     Tensor _cat(TensorList tensors, int64_t dim)
     {
+        GUARD;
         std::vector<dlprim::Tensor> list;
         for(auto const &t:tensors) {
-            list.push_back(todp(t));
+            list.push_back(todp(t.contiguous()));
         }
         size_t total_shape = 0;
         dlprim::Shape ref;
@@ -1105,6 +1292,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     // {"schema": "aten::avg_pool2d.out(Tensor self, int[2] kernel_size, int[2] stride=[], int[2] padding=0, bool ceil_mode=False, bool count_include_pad=True, int? divisor_override=None, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & avg_pool2d_out(const Tensor & self, IntArrayRef kernel_size, IntArrayRef stride, IntArrayRef padding, bool ceil_mode, bool count_include_pad, c10::optional<int64_t> divisor_override, Tensor & out)
     {
+        GUARD;
         TORCH_CHECK(ceil_mode==false,"Ceil mode=true not implemented");
         TORCH_CHECK(!divisor_override,"Divisor override is not implemented");
         int ker[2] = {int(kernel_size[0]),int(kernel_size[1])};
@@ -1133,9 +1321,42 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         return out;
     }
 
+    // {"schema": "aten::avg_pool2d_backward.grad_input(Tensor grad_output, Tensor self, int[2] kernel_size, int[2] stride, int[2] padding, bool ceil_mode, bool count_include_pad, int? divisor_override, *, Tensor(a!) grad_input) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & avg_pool2d_backward_out(const Tensor & grad_output, const Tensor & self, IntArrayRef kernel_size, IntArrayRef stride, IntArrayRef padding, bool ceil_mode, bool count_include_pad, c10::optional<int64_t> divisor_override, Tensor & grad_input)
+    {
+        GUARD;
+        TORCH_CHECK(ceil_mode==false,"Ceil mode=true not implemented");
+        TORCH_CHECK(!divisor_override,"Divisor override is not implemented");
+        int ker[2] = {int(kernel_size[0]),int(kernel_size[1])};
+        int pad[2] = {int(padding[0]),    int(padding[1])};
+        int strd[2];
+        if(stride.empty()) {
+            strd[0]=ker[0];
+            strd[1]=ker[1]; 
+        }
+        else {
+            strd[0]=stride[0];
+            strd[1]=stride[1];
+        };
+        dlprim::Tensor dY=todp(grad_output.contiguous());
+        dlprim::Tensor dX=todp(grad_input);
+        dlprim::ExecutionContext q(getExecutionContext(self));
+        dlprim::Context ctx(q);
+        
+        auto pool = dlprim::core::AvgPooling2DBackward::create(
+                        ctx,
+                        ker,pad,strd,
+                        count_include_pad,todp(grad_input.dtype())
+                    );                  
+        pool->enqueue(dX,dY,0,q);    
+        sync_if_needed(self.device());
+        return grad_input;
+    }
+
     // {"schema": "aten::hardswish_(Tensor(a!) self) 
     Tensor & hardswish_(Tensor & self)
     {
+        GUARD;
         dlprim::Tensor x=todp(self.contiguous());
         dlprim::core::pointwise_operation({x},{x},{},"y0 = x0 <= -3 ? 0 : (x0>=3 ? x0 : x0*(x0+3)/6);",getExecutionContext(self));
         sync_if_needed(self.device());
@@ -1144,9 +1365,45 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     // {"schema": "aten::hardsigmoid.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & hardsigmoid_out(const Tensor & self, Tensor & out)
     {
+        GUARD;
         dlprim::Tensor x=todp(self.contiguous());
         dlprim::Tensor y=todp(out);
         dlprim::core::pointwise_operation({x},{y},{},"y0 = x0 <= -3 ? 0 : (x0>=3 ? 1 : x0/6 + 0.5);",getExecutionContext(self));
+        sync_if_needed(self.device());
+        return out;
+    }
+    // {"schema": "aten::hardsigmoid_backward.grad_input(Tensor grad_output, Tensor self, *, Tensor(a!) grad_input) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & hardsigmoid_backward_out(const Tensor & grad_output, const Tensor & self, Tensor & grad_input)
+    {
+        GUARD;
+        dlprim::Tensor x=todp(self.contiguous());
+        dlprim::Tensor dx=todp(grad_input);
+        dlprim::Tensor dy=todp(grad_output);
+
+        dlprim::core::pointwise_operation({x,dy},{dx},{},"y0 = (-3 < x0 && x0 < 3) ? x1 / 6 : 0;",getExecutionContext(self));
+        sync_if_needed(self.device());
+        return grad_input;
+    }
+    
+    // {"schema": "aten::hardswish_backward(Tensor grad_output, Tensor self) -> Tensor", "dispatch": "True", "default": "False"}
+    Tensor hardswish_backward(const Tensor & grad_output, const Tensor & self)
+    {
+        GUARD;
+        dlprim::Tensor dy=todp(grad_output);
+        Tensor out = new_tensor_as(dy.shape(),grad_output);
+        dlprim::Tensor dx=todp(out);
+        dlprim::Tensor x =todp(self);
+        dlprim::core::pointwise_operation({x,dy},{dx},{},
+            R"xxx(
+                if (x0 < -3) {
+                    y0 = 0;
+                } else if (x0 <= 3) {
+                    y0 =  x1 * ((x0 / 3) + 0.5);
+                } else {
+                    y0 = x1;
+                }
+            )xxx",
+            getExecutionContext(self));
         sync_if_needed(self.device());
         return out;
     }
@@ -1154,6 +1411,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     // {"schema": "aten::sigmoid.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & sigmoid_out(const Tensor & self, Tensor & out)
     {
+        GUARD;
         dlprim::Tensor x=todp(self.contiguous());
         dlprim::Tensor y=todp(out);
         dlprim::core::activation_forward(x,y,dlprim::StandardActivations::sigmoid,getExecutionContext(self));
@@ -1163,6 +1421,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     // {"schema": "aten::sigmoid(Tensor self) -> Tensor", "dispatch": "True", "default": "True"}
     Tensor sigmoid(const Tensor & self)
     {
+        GUARD;
         dlprim::Tensor x=todp(self.contiguous());
         Tensor out = new_tensor_as(x.shape(),self);
         dlprim::Tensor y=todp(out);
@@ -1173,24 +1432,68 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     // {"schema": "aten::sigmoid_(Tensor(a!) self) -> Tensor(a!)", "dispatch": "True", "default": "True"}
     Tensor & sigmoid_(Tensor & self)
     {
+        GUARD;
         dlprim::Tensor X=todp(self);
         dlprim::core::activation_forward(X,X,dlprim::StandardActivations::sigmoid,getExecutionContext(self));
         sync_if_needed(self.device());
         return self;
     }
+    
+    // {"schema": "aten::sigmoid_backward.grad_input(Tensor grad_output, Tensor output, *, Tensor(a!) grad_input) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & sigmoid_backward_out(const Tensor & grad_output, const Tensor & output, Tensor & grad_input)
+    {
+        GUARD;
+        dlprim::Tensor y=todp(output.contiguous());
+        dlprim::Tensor dy=todp(grad_output);
+        dlprim::Tensor dx=todp(grad_input);
+        dlprim::core::activation_backward(dx,dy,y,dlprim::StandardActivations::sigmoid,0,getExecutionContext(grad_output));
+        sync_if_needed(grad_output.device());
+        return grad_input;
+    }
 
     // {"schema": "aten::tanh.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & tanh_out(const Tensor & self, Tensor & out)
     {
+        GUARD;
         dlprim::Tensor x=todp(self.contiguous());
         dlprim::Tensor y=todp(out);
         dlprim::core::activation_forward(x,y,dlprim::StandardActivations::tanh,getExecutionContext(self));
         sync_if_needed(self.device());
         return out;
     }
+
+    // {"schema": "aten::silu.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & silu_out(const Tensor & self, Tensor & out)
+    {
+        GUARD;
+        dlprim::Tensor x=todp(self.contiguous());
+        dlprim::Tensor y=todp(out);
+        dlprim::core::pointwise_operation({x},{y},{},"y0 = x0 / (1 + exp(-x0));",getExecutionContext(self));
+        sync_if_needed(self.device());
+        return out;
+    }
+
+    // {"schema": "aten::silu_backward.grad_input(Tensor grad_output, Tensor self, *, Tensor(a!) grad_input) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & silu_backward_out(const Tensor & grad_output, const Tensor & self, Tensor & grad_input)
+    {
+        GUARD;
+        dlprim::Tensor x=todp(self.contiguous());
+        dlprim::Tensor dy=todp(grad_output.contiguous());
+        dlprim::Tensor dx=todp(grad_input);
+        dlprim::core::pointwise_operation({x,dy},{dx},{},
+            R"xxx(
+                y0 = x0 / (1 + exp(-x0));
+                y0 = x1 * y0 * ( 1 + x0 * (1 - y0));
+            )xxx",
+            getExecutionContext(self));
+        sync_if_needed(self.device());
+        return grad_input;
+    }
+
     // {"schema": "aten::tanh(Tensor self) -> Tensor", "dispatch": "True", "default": "True"}
     Tensor tanh(const Tensor & self)
     {
+        GUARD;
         dlprim::Tensor x=todp(self.contiguous());
         Tensor out = new_tensor_as(x.shape(),self);
         dlprim::Tensor y=todp(out);
@@ -1201,10 +1504,57 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     // {"schema": "aten::tanh_(Tensor(a!) self) -> Tensor(a!)", "dispatch": "True", "default": "True"}
     Tensor & tanh_(Tensor & self)
     {
+        GUARD;
         dlprim::Tensor X=todp(self);
         dlprim::core::activation_forward(X,X,dlprim::StandardActivations::tanh,getExecutionContext(self));
         sync_if_needed(self.device());
         return self;
+    }
+    
+    // {"schema": "aten::argmax.out(Tensor self, int? dim=None, bool keepdim=False, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & argmax_out(const Tensor & self, c10::optional<int64_t> dim, bool keepdim, Tensor & out)
+    {
+        GUARD;
+        dlprim::Tensor X = todp(self.contiguous());
+        dlprim::Tensor Yind = todp(out);
+        std::vector<int64_t> dims;
+        if(dim) {
+            dims.push_back(*dim);
+        }
+        else {
+            for(int i=0;i<X.shape().size();i++)
+                dims.push_back(i);
+        }
+        c10::IntArrayRef sqdims(dims.data(),dims.size());
+        auto r = squeeze_dim(X.shape(),sqdims,keepdim);
+        TORCH_CHECK(r.second == Yind.shape(),"Invalid output shape");
+        Yind.reshape(r.first);
+
+        WSGuard tmp_guard(Yind.shape().total_size()*dlprim::size_of_data_type(X.dtype()),
+                         self.device());
+        dlprim::Tensor Yval = tmp_guard.ws.sub_tensor(0,Yind.shape(),X.dtype());
+
+        dlprim::ExecutionContext q=getExecutionContext(self);
+        dlprim::Context ctx(q);
+        std::string min_val = dlprim::data_type_to_opencl_numeric_limit(X.dtype(),dlprim::dt_min_val);
+        auto op = dlprim::core::PointwiseOperationBroadcastReduce::create(
+                    ctx,
+                    {X.specs()},{Yval.specs(),Yind.specs()},
+                    0,dlprim::float_data,
+                    "y0=x0; y1=reduce_item;",
+                    "reduce_y0 = " + min_val + "; reduce_y1 = -1;",
+                    R"xxx(
+                        if(y0 > reduce_y0) {
+                            reduce_y0 = y0; 
+                            reduce_y1 = y1; 
+                        }
+                    )xxx"
+                    );
+        WSGuard ws_guard(op->workspace(),self.device());
+        op->enqueue({X},{Yval,Yind},ws_guard.ws,{},{1,1},{0,0},q);
+
+        sync_if_needed(self.device());
+        return out;
     }
 
 
@@ -1222,7 +1572,6 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::empty_strided",&ptdlprim::empty_strided);
       m.impl("aten::convolution_overrideable",&ptdlprim::convolution_overrideable);
       m.impl("aten::convolution_backward_overrideable",&ptdlprim::convolution_backward_overrideable);
-      //m.impl("aten::max_pool2d_with_indices.out",&ptdlprim::max_pool2d_with_indices_out);
       m.impl("aten::_adaptive_avg_pool2d",&ptdlprim::_adaptive_avg_pool2d);
       m.impl("aten::as_strided",&ptdlprim::as_strided);
       m.impl("aten::_log_softmax.out",&ptdlprim::_log_softmax_out);
@@ -1244,26 +1593,33 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::native_batch_norm",&ptdlprim::native_batch_norm);
       m.impl("aten::native_batch_norm_backward",&ptdlprim::native_batch_norm_backward);
       m.impl("aten::mean.out",&ptdlprim::mean_out);
+      m.impl("aten::sum.IntList_out",&ptdlprim::sum_out);
       m.impl("aten::hardtanh_",&ptdlprim::hardtanh_);
       m.impl("aten::hardtanh_backward",&ptdlprim::hardtanh_backward);
       m.impl("aten::abs",&ptdlprim::abs);
       m.impl("aten::_cat",&ptdlprim::_cat);
       m.impl("aten::avg_pool2d.out",&ptdlprim::avg_pool2d_out);
+      m.impl("aten::avg_pool2d_backward.grad_input",&ptdlprim::avg_pool2d_backward_out);
       m.impl("aten::hardswish_",&ptdlprim::hardswish_);
       m.impl("aten::hardsigmoid.out",&ptdlprim::hardsigmoid_out);
+      m.impl("aten::hardsigmoid_backward.grad_input",&ptdlprim::hardsigmoid_backward_out);
       m.impl("aten::view",&ptdlprim::view);
       m.impl("aten::sigmoid.out",&ptdlprim::sigmoid_out);
       m.impl("aten::sigmoid",&ptdlprim::sigmoid);
       m.impl("aten::sigmoid_",&ptdlprim::sigmoid_);
+      m.impl("aten::sigmoid_backward.grad_input",&ptdlprim::sigmoid_backward_out);
       m.impl("aten::tanh.out",&ptdlprim::tanh_out);
+      m.impl("aten::silu.out",&ptdlprim::silu_out);
+      m.impl("aten::silu_backward.grad_input",&ptdlprim::silu_backward_out);
       m.impl("aten::tanh",&ptdlprim::tanh);
       m.impl("aten::tanh_",&ptdlprim::tanh_);
+      m.impl("aten::hardswish_backward",&ptdlprim::hardswish_backward);
+      m.impl("aten::argmax.out",&ptdlprim::argmax_out);
 }
 
 TORCH_LIBRARY_IMPL(aten, AutogradPrivateUse1, m) {
       m.impl("aten::linear",&ptdlprim::linear);
       m.impl("aten::relu",&ptdlprim::act_autograd<dlprim::StandardActivations::relu>);
-      //m.impl("aten::relu_",&ptdlprim::act_inplace_autograd<dlprim::StandardActivations::relu>);
       m.impl("aten::max_pool2d",&ptdlprim::max_pool2d_autograd);
 }
 
