@@ -79,8 +79,8 @@ private:
 thread_local Device OCLDevImpl::dt_ = Device(DeviceType::OPENCL,0);
 thread_local Stream OCLDevImpl::s_  = Stream(c10::Stream::UNSAFE,Device(DeviceType::OPENCL,0),0);
 
-//#define LOG_CALLS 
-#define LOG_EXCEPTIONS
+#define LOG_CALLS 
+//#define LOG_EXCEPTIONS
 
 #if defined(BM_CALLS)
 #define GUARD dlprim::ExecGuard exec_guard(getExecutionContext(ocl_impl_instance.getDevice()),__func__);

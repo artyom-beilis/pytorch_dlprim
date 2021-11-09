@@ -54,7 +54,9 @@ def get_grads(model,and_state):
 def _det(t):
     return t.detach().to('cpu').numpy()
 
-def step(model,data,lables,opt_steps=0,iter_size=1):
+def step(model,data,lables,opt_steps=0,iter_size=1,fwd=False):
+    if fwd:
+        return dict(output=_det(model(data)))
     optimizer = torch.optim.Adam(model.parameters())
     save_res={}
     for o in range(max(1,opt_steps)):
@@ -79,7 +81,7 @@ def step(model,data,lables,opt_steps=0,iter_size=1):
     r.update(save_res)
     return r
 
-def train_on_images(model,batch,device,test,iter_size = 1,opt_steps = 0):
+def train_on_images(model,batch,device,test,iter_size = 1,opt_steps = 0,fwd=False):
     data,labels = batch
     data_dev = data.to(device)
     labels_dev = labels.to(device)
@@ -91,10 +93,10 @@ def train_on_images(model,batch,device,test,iter_size = 1,opt_steps = 0):
     
     state  = copy.deepcopy(model.state_dict())
     model.to(device)
-    calc = step(model,data_dev,labels_dev,opt_steps,iter_size)
+    calc = step(model,data_dev,labels_dev,opt_steps,iter_size,fwd=fwd)
     model.to('cpu')
     model.load_state_dict(state)
-    ref = step(model,data,labels,opt_steps,iter_size)
+    ref = step(model,data,labels,opt_steps,iter_size,fwd=fwd)
     max_diff = 0
     max_name = None
     for name in ref:
@@ -107,8 +109,10 @@ def train_on_images(model,batch,device,test,iter_size = 1,opt_steps = 0):
         if md > max_diff:
             max_diff = md
             max_name = name
-    print("Output distance",output_diff)
-    print("Max dispance",max_diff,"on",max_name)
+    if max_diff > 1e-2:
+        print("    FAIL     od=%0.5f md=%0.5f"% (output_diff,max_diff))
+    else:
+        print("    Ok       od=%0.5f md=%0.5f"% (output_diff,max_diff))
 
 
 class MnistNetConv(torch.nn.Module):
@@ -180,7 +184,7 @@ def make_mnist_batch():
 
 
 def main(args):
-
+    print("Testing ",args.model)
     models = dict(
         mnist_mlp = MnistNetMLP,
         mnist_cnn = MnistNetConv,
@@ -202,17 +206,49 @@ def main(args):
     else:
         m.train()
 
-    train_on_images(m,batch,args.device,args.eval,iter_size = args.iter_size,opt_steps = args.opt)
+    train_on_images(m,batch,args.device,args.eval,iter_size = args.iter_size,opt_steps = args.opt,fwd=args.fwd)
 
 if __name__ == '__main__': 
     p = argparse.ArgumentParser()
+    p.add_argument('--all',default=False,action='store_true')
     p.add_argument('--opt',default=0,type=int,help='Optimizer steps')
     p.add_argument('--iter-size',default=1,type=int,help='Number of mini batches in iteration')
     p.add_argument('--model',default='resnet18')
+    p.add_argument('--fwd',default=False,action='store_true')
     p.add_argument('--device',default='cuda')
     p.add_argument('--eval',default=False)
     p.add_argument('--pretrained',type=bool,default=True)
     r = p.parse_args()
     if r.device.find('opencl')==0:
         torch.ops.load_library("build/libpt_ocl.so")
-    main(r)
+    if r.all:
+        ocl_blacklist = ['squeezenet1_0','googlenet']
+        for net in [ 
+            dict(model='mnist_mlp'),
+            dict(model='mnist_cnn'),
+            dict(model='mnist_bn',iter_size = 2, opt = 5),
+            dict(model='alexnet',eval=True),
+            dict(model='resnet18'),
+            dict(model='vgg16',eval=True),
+            dict(model='squeezenet1_0',eval=True),
+            dict(model='densenet161'),
+            dict(model='inception_v3',fwd=True,eval=True),
+            dict(model='googlenet',eval=True),
+            dict(model='shufflenet_v2_x1_0',eval=True),
+            dict(model='mobilenet_v2',eval=True),
+            dict(model='mobilenet_v3_large',eval=True),
+            dict(model='mobilenet_v3_small',eval=True,fwd=True),
+            dict(model='resnext50_32x4d'),
+            dict(model='wide_resnet50_2'),
+            dict(model='mnasnet1_0',eval=True),
+            dict(model='efficientnet_b0',eval=True),
+            dict(model='efficientnet_b4',eval=True),
+            dict(model='regnet_y_400mf')
+            ]:
+            if net['model'] in ocl_blacklist and r.device.find('opencl')==0:
+                print(net['model'],"is blacklisted")
+                continue
+            new_r=copy.deepcopy(r)
+            for n in net:
+                setattr(new_r,n,net[n])
+            main(new_r)
