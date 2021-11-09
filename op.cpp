@@ -100,16 +100,21 @@ struct ExcGuard {
 #define GUARD ExcGuard debug_guard(__PRETTY_FUNCTION__);
 #elif defined(LOG_CALLS)
 std::atomic<int> indent;
+static bool log_active=getenv("LOG_CALLS") && atoi(getenv("LOG_CALLS")) == 1;
 struct LogGuard {
     LogGuard(char const *name) : name_(name)
     {
+        if(!log_active)
+            return;
         int v=indent++;
         for(int i=0;i<v;i++)
-            std::cout << "  ";
-        std::cout << "in:  " << name_ << std::endl;
+            std::cerr << "  ";
+        std::cerr << "in:  " << name_ << std::endl;
     }
     ~LogGuard()
     {
+        if(!log_active)
+            return;
         indent--;
     }
     char const *name_;
@@ -244,7 +249,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
                 auto src_stride = self.strides();
                 auto src_offset = self.storage_offset();
                 auto tgt_sizes  = dst.sizes();
-                auto tgt_stride = self.strides();
+                auto tgt_stride = dst.strides();
                 auto tgt_offset = dst.storage_offset();
                 TORCH_CHECK(src_sizes == tgt_sizes);
                 dlprim::Shape shape=dlprim::Shape::from_range(src_sizes.begin(),src_sizes.end());
@@ -551,7 +556,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         float scale = 1;
         switch(reduction) {
         case 0: reduce=false; break; // None
-        case 1: reduce=true; scale = 1.0f/dy.shape()[0]; break; // Mean
+        case 1: reduce=true; scale = 1.0f/dx.shape()[0]; break; // Mean
         case 2: reduce=true; break; // sum
         }
         dlprim::core::nll_loss_backward(dx,lbl,dy,reduce,scale,0.0f,getExecutionContext(self));
@@ -769,8 +774,8 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
             strd[0] = ctx->saved_data["strd_0"].toInt();
             strd[1] = ctx->saved_data["strd_1"].toInt();
 
-            dlprim::Tensor dy=todp(grad_output);
-            dlprim::Tensor x=todp(input);
+            dlprim::Tensor dy=todp(grad_output.contiguous());
+            dlprim::Tensor x=todp(input.contiguous());
             torch::Tensor grad_input = new_tensor_as(x.shape(),grad_output);
             dlprim::Tensor dx = todp(grad_input);
 
@@ -867,7 +872,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         dlprim::Tensor y0=todp(out);
         double value=0;
         if(isCPUScalar(other,value)) {
-            dlprim::core::pointwise_operation({x0},{y0},{float(1.0f/value)},
+            dlprim::core::pointwise_operation({x0},{y0},{double(1.0/value)},
                                         "y0 = x0*w0;",
                                         getExecutionContext(self));
         }
@@ -1206,6 +1211,19 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     }
 
 
+    // {"schema": "aten::hardtanh_(Tensor(a!) self, Scalar min_val=-1, Scalar max_val=1) -> Tensor(a!)", "dispatch": "True", "default": "False"} 
+    Tensor hardtanh(Tensor const &self, const Scalar & min_val, const Scalar & max_val)
+    {
+        GUARD;
+        dlprim::Tensor X=todp(self);
+        Tensor out = new_tensor_as(X.shape(),self);
+        dlprim::Tensor Y(todp(out));
+        double w0 = min_val.toDouble();
+        double w1 = max_val.toDouble();
+        dlprim::core::pointwise_operation({X},{Y},{w0,w1},"y0=max(w0,min(w1,x0));",getExecutionContext(self));
+        sync_if_needed(self.device());
+        return out;
+    }
 
 
     // {"schema": "aten::hardtanh_(Tensor(a!) self, Scalar min_val=-1, Scalar max_val=1) -> Tensor(a!)", "dispatch": "True", "default": "False"} 
@@ -1227,10 +1245,10 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         dlprim::Tensor dY = todp(grad_output);
         dlprim::Tensor X  = todp(self);
         Tensor result = new_tensor_as(X.shape(),self);
-        dlprim::Tensor dx = todp(result);
+        dlprim::Tensor dX = todp(result);
         double w0 = min_val.toDouble();
         double w1 = max_val.toDouble();
-        dlprim::core::pointwise_operation({X,dY},{X},{w0,w1},"y0 = (w0 <= x0 && x0 <= w1) ? x1 : 0;",getExecutionContext(self));
+        dlprim::core::pointwise_operation({X,dY},{dX},{w0,w1},"y0 = (w0 <= x0 && x0 <= w1) ? x1 : 0;",getExecutionContext(self));
         sync_if_needed(self.device());
         return result;
     }
@@ -1243,6 +1261,28 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         Tensor out = new_tensor_as(x.shape(),self);
         dlprim::Tensor y=todp(out);
         dlprim::core::pointwise_operation({x},{y},{},"y0 = x0 < 0 ? -x0 : x0;",getExecutionContext(self));
+        sync_if_needed(self.device());
+        return out;
+    }
+
+     // {"schema": "aten::abs.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & abs_out(const Tensor & self, Tensor & out)
+    {
+        GUARD;
+        dlprim::Tensor x=todp(self.contiguous());
+        dlprim::Tensor y=todp(out);
+        dlprim::core::pointwise_operation({x},{y},{},"y0 = x0 < 0 ? -x0 : x0;",getExecutionContext(self));
+        sync_if_needed(self.device());
+        return out;
+    }
+
+    // {"schema": "aten::sgn.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & sgn_out(const Tensor & self, Tensor & out)
+    {
+        GUARD;
+        dlprim::Tensor x=todp(self.contiguous());
+        dlprim::Tensor y=todp(out);
+        dlprim::core::pointwise_operation({x},{y},{},"y0 = x0 < 0 ? -1 : (x0 > 0 ? 1 : 0) ;",getExecutionContext(self));
         sync_if_needed(self.device());
         return out;
     }
@@ -1461,6 +1501,18 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         sync_if_needed(self.device());
         return out;
     }
+    
+    // {"schema": "aten::tanh_backward.grad_input(Tensor grad_output, Tensor output, *, Tensor(a!) grad_input) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & tanh_backward_out(const Tensor & grad_output, const Tensor & output, Tensor & grad_input)
+    {
+        GUARD;
+        dlprim::Tensor dY=todp(grad_output.contiguous());
+        dlprim::Tensor Y=todp(output.contiguous());
+        dlprim::Tensor dX=todp(grad_input);
+        dlprim::core::activation_backward(dX,dY,Y,dlprim::StandardActivations::tanh,0.0,getExecutionContext(grad_output));
+        sync_if_needed(grad_output.device());
+        return grad_input;
+}
 
     // {"schema": "aten::silu.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & silu_out(const Tensor & self, Tensor & out)
@@ -1482,7 +1534,7 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         dlprim::Tensor dx=todp(grad_input);
         dlprim::core::pointwise_operation({x,dy},{dx},{},
             R"xxx(
-                y0 = x0 / (1 + exp(-x0));
+                y0 = 1 / (1 + exp(-x0));
                 y0 = x1 * y0 * ( 1 + x0 * (1 - y0));
             )xxx",
             getExecutionContext(self));
@@ -1556,10 +1608,27 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         sync_if_needed(self.device());
         return out;
     }
-
-
-
-
+   
+#if 0 
+     // {"schema": "aten::upsample_bilinear2d.out(Tensor self, int[2] output_size, bool align_corners, float? scales_h=None, float? scales_w=None, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & upsample_bilinear2d_out(const Tensor & self, IntArrayRef output_size, bool align_corners, c10::optional<double> scales_h, c10::optional<double> scales_w, Tensor & out)
+    {
+        GUARD;
+        dlprim::Tensor X=todp(self.contiguous());
+        dlprim::Tensor Y=todp(out);
+        TORCH_CHECK(!scales_h && !scales_w,"Not implemented")
+        TORCH_CHECK(!align_corners,"Not implemented");
+        TORCH_CHECK(output_size[0] == int64_t(Y.shape()[2]));
+        TORCH_CHECK(output_size[1] == int64_t(Y.shape()[3]));
+        TORCH_CHECK(output_size[0] % X.shape()[2] == 0);
+        TORCH_CHECK(output_size[1] % X.shape()[3] == 0);
+        TORCH_CHECK(output_size[1] / X.shape()[3] == output_size[0] / X.shape()[2],"Scale need to be the same")
+        int factor = output_size[1] / X.shape()[2];
+        dlprim::core::upscale2d_forward(dlprim::core::upscale_linear,factor,X,Y,0,getExecutionContext(out));
+        sync_if_needed(self.device());
+        return out;
+    }
+#endif
 
 } // namespace
 
@@ -1594,9 +1663,12 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::native_batch_norm_backward",&ptdlprim::native_batch_norm_backward);
       m.impl("aten::mean.out",&ptdlprim::mean_out);
       m.impl("aten::sum.IntList_out",&ptdlprim::sum_out);
+      m.impl("aten::hardtanh",&ptdlprim::hardtanh);
       m.impl("aten::hardtanh_",&ptdlprim::hardtanh_);
       m.impl("aten::hardtanh_backward",&ptdlprim::hardtanh_backward);
       m.impl("aten::abs",&ptdlprim::abs);
+      m.impl("aten::abs.out",&ptdlprim::abs_out);
+      m.impl("aten::sgn.out",&ptdlprim::sgn_out);
       m.impl("aten::_cat",&ptdlprim::_cat);
       m.impl("aten::avg_pool2d.out",&ptdlprim::avg_pool2d_out);
       m.impl("aten::avg_pool2d_backward.grad_input",&ptdlprim::avg_pool2d_backward_out);
@@ -1609,6 +1681,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::sigmoid_",&ptdlprim::sigmoid_);
       m.impl("aten::sigmoid_backward.grad_input",&ptdlprim::sigmoid_backward_out);
       m.impl("aten::tanh.out",&ptdlprim::tanh_out);
+      m.impl("aten::tanh_backward.grad_input",&ptdlprim::tanh_backward_out);
       m.impl("aten::silu.out",&ptdlprim::silu_out);
       m.impl("aten::silu_backward.grad_input",&ptdlprim::silu_backward_out);
       m.impl("aten::tanh",&ptdlprim::tanh);
