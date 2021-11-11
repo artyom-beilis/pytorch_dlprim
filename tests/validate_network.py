@@ -54,7 +54,11 @@ def get_grads(model,and_state):
 def _det(t):
     return t.detach().to('cpu').numpy()
 
-def step(model,data,lables,opt_steps=0,iter_size=1,fwd=False):
+def step(model,data,lables,opt_steps=0,iter_size=1,fwd=False,test=True):
+    if test:
+        model.eval()
+    else:
+        model.train()
     if fwd:
         return dict(output=_det(model(data)))
     optimizer = torch.optim.Adam(model.parameters())
@@ -65,6 +69,9 @@ def step(model,data,lables,opt_steps=0,iter_size=1,fwd=False):
             sm = torch.nn.LogSoftmax(dim=1)
             nll = torch.nn.NLLLoss()
             res = model(data)
+            #with torch.no_grad():
+            #    print(torch.argmax(res,dim=1).to('cpu'))
+            #    print(res[:,0:8].to('cpu'))
             if not isinstance(res,torch.Tensor):
                 for i,n in enumerate(res):
                     name = 'output' if i == 0 else 'output_' + n
@@ -86,17 +93,14 @@ def train_on_images(model,batch,device,test,iter_size = 1,opt_steps = 0,fwd=Fals
     data_dev = data.to(device)
     labels_dev = labels.to(device)
 
-    if test:
-        model.eval()
-    else:
-        model.train()
-    
-    state  = copy.deepcopy(model.state_dict())
+    with torch.no_grad():
+        state  = copy.deepcopy(model.state_dict())
     model.to(device)
-    calc = step(model,data_dev,labels_dev,opt_steps,iter_size,fwd=fwd)
+    calc = step(model,data_dev,labels_dev,opt_steps,iter_size,fwd=fwd,test=test)
     model.to('cpu')
-    model.load_state_dict(state)
-    ref = step(model,data,labels,opt_steps,iter_size,fwd=fwd)
+    with torch.no_grad():
+        model.load_state_dict(state)
+    ref = step(model,data,labels,opt_steps,iter_size,fwd=fwd,test=test)
     max_diff = 0
     max_name = None
     for name in ref:
@@ -185,17 +189,22 @@ def make_mnist_batch():
 
 def main(args):
     print("Testing ",args.model)
+    def _sn():
+        from shufflenetv2 import shufflenet_v2_x1_0 
+        return shufflenet_v2_x1_0(pretrained=True)
     models = dict(
         mnist_mlp = MnistNetMLP,
         mnist_cnn = MnistNetConv,
-        mnist_bn = MnistNetBN
+        mnist_bn = MnistNetBN,
     )
 
     if args.model in models:
         m=models[args.model]()
         batch = make_mnist_batch()
     else:
-        if args.model.find('segmentation.')==0:
+        if args.model == 'sn':
+            m=_sn() 
+        elif args.model.find('segmentation.')==0:
             m=getattr(torchvision.models.segmentation,args.model[len('segmentation.'):])(pretrained = args.pretrained,aux_loss=False)
         else:
             m = getattr(torchvision.models,args.model)(pretrained = args.pretrained)
@@ -237,7 +246,7 @@ if __name__ == '__main__':
             dict(model='shufflenet_v2_x1_0',eval=True),
             dict(model='mobilenet_v2',eval=True),
             dict(model='mobilenet_v3_large',eval=True),
-            dict(model='mobilenet_v3_small',eval=True,fwd=True),
+            dict(model='mobilenet_v3_small',eval=True,fwd=True), # fails for cuda bwd as well
             dict(model='resnext50_32x4d'),
             dict(model='wide_resnet50_2'),
             dict(model='mnasnet1_0',eval=True),
@@ -252,3 +261,5 @@ if __name__ == '__main__':
             for n in net:
                 setattr(new_r,n,net[n])
             main(new_r)
+    else:
+        main(r)
