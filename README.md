@@ -7,13 +7,32 @@ It is only beginning, but you can train some vision nets using OpenCL devices.
 
 # Validated Networks
 
-- Alexnet
-- Resnet18
-- Resnet50
-- VGG16
-- MobileNetv2
+Following networks were validated in computations of 
 
-Results of inference validated agaist reference
+| Network               |   Notes                                   |
+|-----------------------|-------------------------------------------|
+| `alexnet`             |                                           |
+| `resnet18`            |                                           |
+| `resnet50`            |                                           |
+| `vgg16`               |                                           |
+| `densenet161`         |                                           |
+| `inception_v3`        | fwd only - backward fails on cuda/cpu     |
+| `shufflenet_v2_x1_0`  |                                           |
+| `mobilenet_v2`        |                                           |
+| `mobilenet_v3_large`  |                                           |
+| `mobilenet_v3_small`  | fwd only - same failure on bwd on cuda.   |
+| `resnext50_32x4d`     |                                           |
+| `wide_resnet50_2`     |                                           |
+| `mnasnet1_0`          |                                           |
+| `efficientnet_b0`     |                                           |
+| `efficientnet_b4`     |                                           |
+| `regnet_y_400mf`      |                                           |
+
+
+Results of inference validated agaist CPU reference for both forward and backward popogation.
+
+Out of pretrained networks following two are failing: `squeezenet1_0`, `googlenet` since
+ceil pooling mode isn't implemented yet
 
 # Tested Devices
 
