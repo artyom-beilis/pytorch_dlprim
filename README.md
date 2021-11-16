@@ -7,7 +7,7 @@ It is only beginning, but you can train some vision nets using OpenCL devices.
 
 # Validated Networks
 
-Following networks were validated in computations of 
+Following torchvision networks were validated:
 
 | Network               |   Notes                                   |
 |-----------------------|-------------------------------------------|
@@ -29,7 +29,7 @@ Following networks were validated in computations of
 | `regnet_y_400mf`      |                                           |
 
 
-Results of inference validated agaist CPU reference for both forward and backward popogation.
+Calculations validated agaist CPU reference for both forward and backward popogation.
 
 Out of pretrained networks following two are failing: `squeezenet1_0`, `googlenet` since
 ceil pooling mode isn't implemented yet
