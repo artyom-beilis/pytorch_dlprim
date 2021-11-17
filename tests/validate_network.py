@@ -225,13 +225,13 @@ if __name__ == '__main__':
     p.add_argument('--model',default='resnet18')
     p.add_argument('--fwd',default=False,action='store_true')
     p.add_argument('--device',default='cuda')
-    p.add_argument('--eval',default=False)
+    p.add_argument('--eval',default=False,action='store_true')
     p.add_argument('--pretrained',type=bool,default=True)
     r = p.parse_args()
     if r.device.find('opencl')==0:
         torch.ops.load_library("build/libpt_ocl.so")
     if r.all:
-        ocl_blacklist = ['squeezenet1_0','googlenet']
+        ocl_blacklist = []
         for net in [ 
             dict(model='mnist_mlp'),
             dict(model='mnist_cnn'),

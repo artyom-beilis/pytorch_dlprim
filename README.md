@@ -15,6 +15,8 @@ Following torchvision networks were validated:
 | `resnet18`            |                                           |
 | `resnet50`            |                                           |
 | `vgg16`               |                                           |
+| `squeezenet1_0`       |                                           |
+| `googlenet`           |                                           |
 | `densenet161`         |                                           |
 | `inception_v3`        | fwd only - backward fails on cuda/cpu     |
 | `shufflenet_v2_x1_0`  |                                           |
@@ -30,9 +32,6 @@ Following torchvision networks were validated:
 
 
 Calculations validated agaist CPU reference for both forward and backward popogation.
-
-Out of pretrained networks following two are failing: `squeezenet1_0`, `googlenet` since
-ceil pooling mode isn't implemented yet
 
 # Tested Devices
 

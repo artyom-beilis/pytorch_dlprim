@@ -731,7 +731,6 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
 
             TORCH_CHECK(kernel_size.size()==2,"Invalid sizes");
             TORCH_CHECK(dilation[0]==1 && dilation[1]==1,"Dilation != 1 is not implemented yet");
-            TORCH_CHECK(ceil_mode==false,"ceil mode=true not implemeted yet");
             int kernel[2]={int(kernel_size[0]),int(kernel_size[1])};
             int pad[2]={int(padding[0]),int(padding[1])};
             int strd[2]={1,1};
@@ -751,8 +750,8 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
             dlprim::Shape y_shape = dlprim::Shape(
                     x_shape[0],
                     x_shape[1],
-                    (x_shape[2]+ 2 * pad[0] - kernel[0]) / strd[0] + 1,
-                    (x_shape[3]+ 2 * pad[1] - kernel[1]) / strd[1] + 1);
+                    dlprim::core::calc_pooling_output_size(x_shape[2],kernel[0],pad[0],strd[0],ceil_mode),
+                    dlprim::core::calc_pooling_output_size(x_shape[3],kernel[1],pad[1],strd[1],ceil_mode));
 
             torch::Tensor out = new_tensor_as(y_shape,self);
 
@@ -1366,11 +1365,11 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
     }
 
     // {"schema": "aten::avg_pool2d.out(Tensor self, int[2] kernel_size, int[2] stride=[], int[2] padding=0, bool ceil_mode=False, bool count_include_pad=True, int? divisor_override=None, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
-    Tensor & avg_pool2d_out(const Tensor & self, IntArrayRef kernel_size, IntArrayRef stride, IntArrayRef padding, bool ceil_mode, bool count_include_pad, c10::optional<int64_t> divisor_override, Tensor & out)
+    Tensor & avg_pool2d_out(const Tensor & self, IntArrayRef kernel_size, IntArrayRef stride, IntArrayRef padding, bool /*ceil_mode*/, bool count_include_pad, c10::optional<int64_t> divisor_override, Tensor & out)
     {
         GUARD;
-        TORCH_CHECK(ceil_mode==false,"Ceil mode=true not implemented");
         TORCH_CHECK(!divisor_override,"Divisor override is not implemented");
+        // note ceil mode calculations are based on output size
         int ker[2] = {int(kernel_size[0]),int(kernel_size[1])};
         int pad[2] = {int(padding[0]),    int(padding[1])};
         int strd[2];
