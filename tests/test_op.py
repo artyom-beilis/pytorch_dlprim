@@ -39,13 +39,13 @@ def test_fwd(inputs,call,device):
     if get_diff(y_cpu,y_dev) > 1e-3:
         raise Exception("Diff too big")
 
-def test_fwd_bwd(inputs,call,device):
+def test_fwd_bwd(inputs,call,device,randgen=torch.randn):
     xs_cpu = []
     xs_dev = []
     with torch.no_grad():
         for s,limit in inputs:
             if limit <= 0:
-                x_cpu = torch.randn(s)
+                x_cpu = randgen(s)
                 x_dev = x_cpu.to(device)
                 x_cpu.requires_grad = True
                 x_dev.requires_grad = True
@@ -57,6 +57,9 @@ def test_fwd_bwd(inputs,call,device):
 
     y_cpu = call(*xs_cpu)
     y_dev = call(*xs_dev)
+
+    print(y_cpu.shape)
+    print(y_dev.shape)
 
     if y_cpu.shape:
         with torch.no_grad():
@@ -94,6 +97,8 @@ def test_all(device):
     test_fwd_bwd([([2,3,4],-1)],lambda x:torch.mean(x,dim=0,keepdim=False),device)
     print("Mean 2d squeeze")
     test_fwd_bwd([([2,3,4],-1)],lambda x:torch.mean(x,dim=(0,2),keepdim=False),device)
+    print("Mean all squeeze")
+    test_fwd_bwd([([2,3,4],-1)],lambda x:torch.mean(x),device)
 
     print("Sum 1d")
     test_fwd_bwd([([2,3,4],-1)],lambda x:torch.sum(x,dim=0,keepdim=True),device)
@@ -130,6 +135,10 @@ def test_all(device):
     test_fwd_bwd([([4,3],-1)],torch.nn.ReLU(),device)
     print("ReLU_")
     test_fwd_bwd([([4,3],-1)],lambda x:torch.nn.ReLU(inplace=True)(x*1.0),device)
+    print("LReLu")
+    test_fwd_bwd([([4,3],-1)],torch.nn.LeakyReLU(),device)
+    print("LReLU_")
+    test_fwd_bwd([([4,3],-1)],lambda x:torch.nn.LeakyReLU(inplace=True)(x*1.0),device)
     print("Tanh")
     test_fwd_bwd([([4,3],-1)],torch.nn.Tanh(),device)
     print("Tanh_")
@@ -140,6 +149,10 @@ def test_all(device):
     test_fwd_bwd([([4,3],-1)],lambda x:torch.nn.SiLU(inplace=True)(x*1.0),device)
     #print("ChannelShuffle")
     #test_fwd_bwd([([3, 4, 2, 2],-1)],torch.nn.ChannelShuffle(2),device)
+    print("BCE Loss")
+    test_fwd_bwd([([4,3,5],-1),([4,3,5],-1)],torch.nn.BCELoss(),device,torch.rand)
+    print("BCE Loss no reduction")
+    test_fwd_bwd([([4,3,5],-1),([4,3,5],-1)],torch.nn.BCELoss(reduction='none'),device,torch.rand)
 
 
 

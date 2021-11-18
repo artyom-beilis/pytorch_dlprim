@@ -12,11 +12,13 @@ import torch.nn.functional as F
 import torch.nn as nn
 
 
-def make_batch():
+def make_batch(size):
     base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    base_path = os.path.join(base_path,'tests/samples')
+    dirname = {"standard" : "samples", "small" : "small_samples", "large":"big_samples" }[size]
+    dim = {"standard":224,"small":150,"large":256}[size]
+    base_path = os.path.join(base_path,'tests/%s' % dirname)
     samples = {'cat':281,'dog':207,'parrot':87,'goldfish':1}
-    data = np.zeros((4,3,224,224)).astype(np.float32)
+    data = np.zeros((4,3,dim,dim)).astype(np.float32)
     labels = np.zeros(4).astype(np.int64)
     mean = np.array([0.485, 0.456, 0.406]).astype(np.float32)
     std = np.array([0.229, 0.224, 0.225]).astype(np.float32)
@@ -208,7 +210,7 @@ def main(args):
             m=getattr(torchvision.models.segmentation,args.model[len('segmentation.'):])(pretrained = args.pretrained,aux_loss=False)
         else:
             m = getattr(torchvision.models,args.model)(pretrained = args.pretrained)
-        batch  = make_batch()
+        batch  = make_batch(args.size)
 
     if args.eval:
         m.eval()
@@ -223,6 +225,7 @@ if __name__ == '__main__':
     p.add_argument('--opt',default=0,type=int,help='Optimizer steps')
     p.add_argument('--iter-size',default=1,type=int,help='Number of mini batches in iteration')
     p.add_argument('--model',default='resnet18')
+    p.add_argument('--size',default='standard',choices=['standard','small','large'])
     p.add_argument('--fwd',default=False,action='store_true')
     p.add_argument('--device',default='cuda')
     p.add_argument('--eval',default=False,action='store_true')
@@ -238,6 +241,7 @@ if __name__ == '__main__':
             dict(model='mnist_bn',iter_size = 2, opt = 5),
             dict(model='alexnet',eval=True),
             dict(model='resnet18'),
+            dict(model='resnet50'),
             dict(model='vgg16',eval=True),
             dict(model='squeezenet1_0',eval=True),
             dict(model='densenet161'),
@@ -260,6 +264,9 @@ if __name__ == '__main__':
             new_r=copy.deepcopy(r)
             for n in net:
                 setattr(new_r,n,net[n])
-            main(new_r)
+            try:
+                main(new_r)
+            except Exception as e:
+                print("Fail",str(e))
     else:
         main(r)

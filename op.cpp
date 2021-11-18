@@ -573,6 +573,78 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         sync_if_needed(self.device());
         return grad_input;
     }
+       
+     // {"schema": "aten::binary_cross_entropy(Tensor self, Tensor target, Tensor? weight=None, int reduction=Mean) -> Tensor", "dispatch": "True", "default": "False"}
+    Tensor binary_cross_entropy(const Tensor & self, const Tensor & target, const c10::optional<Tensor> & weight, int64_t reduction)
+    {
+        GUARD;
+        TORCH_CHECK(!weight || weight->numel()==0,"Weight in binar_cross_entroy isn't supported");
+        Tensor self_c = self.contiguous();
+        Tensor target_c = target.contiguous();
+        dlprim::Tensor x = todp(self_c);
+        dlprim::Tensor y = todp(target_c);
+        bool reduce = false;
+        double scale = 1;
+        switch(reduction) {
+        case 0: reduce=false; break; // None
+        case 1: reduce=true; scale = 1.0/x.shape().total_size(); break; // Mean
+        case 2: reduce=true; break; // sum
+        }
+        dlprim::Shape target_shape;
+        if(!reduce)
+            target_shape = x.shape();
+        Tensor loss_tensor = new_tensor_as(target_shape,self_c);
+        dlprim::Tensor loss(todp(loss_tensor));
+        auto q = getExecutionContext(self);
+        dlprim::Context ctx(q);
+        auto op = dlprim::core::PointwiseOperationBroadcastReduce::create(ctx,
+                    {x.specs(),y.specs()},{loss.specs()},0,dlprim::float_data,
+                    "y0 = - (x1 * max((typeof_x0)(-100),log(x0)) + (1-x1) * max((typeof_x0)(-100),log(1-x0)));",
+                    "reduce_y0 = 0;",
+                    "reduce_y0 += y0;");
+        WSGuard wsg(op->workspace(),self.device());
+        op->enqueue({x,y},{loss},wsg.ws,{},{scale},{0},q);
+        sync_if_needed(self.device());
+        return loss_tensor;
+    }
+
+    // {"schema": "aten::binary_cross_entropy_backward.grad_input(Tensor grad_output, Tensor self, Tensor target, Tensor? weight=None, int reduction=Mean, *, Tensor(a!) grad_input) -> Tensor(a!)", "dispatch": "True", "default": "False"} 
+    Tensor & binary_cross_entropy_backward_out(const Tensor & grad_output, const Tensor & self, const Tensor & target, const c10::optional<Tensor> & weight, int64_t reduction, Tensor & grad_input)
+    {
+        GUARD;
+        TORCH_CHECK(!weight || weight->numel()==0,"Weight in binar_cross_entroy isn't supported");
+        Tensor self_c = self.contiguous();
+        Tensor target_c = target.contiguous();
+        Tensor grad_output_c = grad_output.contiguous();
+        dlprim::Tensor x = todp(self_c);
+        dlprim::Tensor y = todp(target_c);
+        dlprim::Tensor dloss = todp(grad_output_c);
+        double scale = 1;
+        if(reduction == 1) // mean
+            scale = 1.0/x.shape().total_size(); 
+        dlprim::Tensor dx = todp(grad_input);
+
+        // -w (y - x) / (x - x^2)
+        dlprim::core::pointwise_operation_broadcast({x,y,dloss},{dx},{scale},
+                "y0 = -(x1 - x0) / (x0 - x0*x0) * x2 * w0;",
+                getExecutionContext(self));
+        sync_if_needed(self.device());
+        return grad_input;
+
+    }
+
+    // {"schema": "aten::binary_cross_entropy_backward(Tensor grad_output, Tensor self, Tensor target, Tensor? weight=None, int reduction=Mean) -> Tensor", "dispatch": "True", "default": "False"}
+    Tensor binary_cross_entropy_backward(const Tensor & grad_output, const Tensor & self, const Tensor & target, const c10::optional<Tensor> & weight, int64_t reduction)
+    {
+        GUARD;
+        Tensor self_c = self.contiguous();
+        Tensor input_grad = new_tensor_as(todp(self_c).shape(),self_c);
+        binary_cross_entropy_backward_out(grad_output,self_c,target,weight,reduction,input_grad);
+        return input_grad;
+    }
+
+
+
 
     // {"schema": "aten::_log_softmax_backward_data.out(Tensor grad_output, Tensor output, int dim, ScalarType input_dtype, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & _log_softmax_backward_data_out(const Tensor & grad_output, const Tensor & output, int64_t dim, ScalarType /*input_dtype*/, Tensor & out)
@@ -846,6 +918,25 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         sync_if_needed(self.device());
         return out;
     }
+
+    // {"schema": "aten::log.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & log_out(const Tensor & self, Tensor & out)
+    {
+        GUARD;
+        Tensor self_c=self.contiguous();
+        dlprim::core::pointwise_operation({todp(self_c)},{todp(out)},{},
+                    "y0 = log(x0);",getExecutionContext(self));
+        sync_if_needed(self.device());
+        return out;
+    }
+
+    // {"schema": "aten::sub.out(Tensor self, Tensor other, *, Scalar alpha=1, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & sub_out(const Tensor & self, const Tensor & other, const Scalar & alpha, Tensor & out)
+    {
+        GUARD;
+        return add_out(self,other,Scalar(alpha.toDouble()*-1),out);
+    }
+
     
     // {"schema": "aten::addcmul.out(Tensor self, Tensor tensor1, Tensor tensor2, *, Scalar value=1, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & addcmul_out(const Tensor & self, const Tensor & tensor1, const Tensor & tensor2, const Scalar & value, Tensor & out)
@@ -999,20 +1090,55 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         sync_if_needed(self.device());
         return grad_input;
     }
+
+    struct SeqState {
+         dlprim::RandomState::seed_type seed;
+         dlprim::RandomState::sequence_type sequence;
+    };
+
+    SeqState get_random_seq(int64_t items,c10::optional<Generator> generator)
+    {
+        static dlprim::RandomState state(time(0));
+        size_t rounds = (items +  dlprim::philox::result_items - 1) / dlprim::philox::result_items;
+        SeqState s;
+        s.seed = state.seed();
+        s.sequence  = state.sequence_bump(rounds);
+        return  s;
+    }
+
     // {"schema": "aten::bernoulli_.float(Tensor(a!) self, float p=0.5, *, Generator? generator=None) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & bernoulli_(Tensor & self, double p, c10::optional<Generator> generator)
     {
         GUARD;
-        static dlprim::RandomState state(time(0));
         dlprim::Tensor rnd=todp(self);
-        size_t rounds = (rnd.shape().total_size() +  dlprim::philox::result_items - 1) / dlprim::philox::result_items;
-        auto seed = state.seed();
-        auto seq  = state.sequence_bump(rounds);
-
-        dlprim::core::fill_random(rnd,seed,seq,dlprim::core::rnd_bernoulli,p,0,getExecutionContext(self));
+        auto seq = get_random_seq(rnd.shape().total_size(),generator);
+        dlprim::core::fill_random(rnd,seq.seed,seq.sequence,dlprim::core::rnd_bernoulli,p,0,getExecutionContext(self));
         sync_if_needed(self.device());
         return self;
     }
+
+    // {"schema": "aten::normal_(Tensor(a!) self, float mean=0, float std=1, *, Generator? generator=None) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & normal_(Tensor & self, double mean, double std, c10::optional<Generator> generator)
+    {
+        GUARD;
+        dlprim::Tensor rnd=todp(self);
+        auto seq = get_random_seq(rnd.shape().total_size(),generator);
+        dlprim::core::fill_random(rnd,seq.seed,seq.sequence,dlprim::core::rnd_normal,mean,std*std,getExecutionContext(self));
+        sync_if_needed(self.device());
+        return self;
+    }
+
+    // {"schema": "aten::uniform_(Tensor(a!) self, float from=0, float to=1, *, Generator? generator=None) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & uniform_(Tensor & self, double from, double to, c10::optional<Generator> generator)
+    {
+        GUARD;
+        dlprim::Tensor rnd=todp(self);
+        auto seq = get_random_seq(rnd.shape().total_size(),generator);
+        dlprim::core::fill_random(rnd,seq.seed,seq.sequence,dlprim::core::rnd_uniform,from,to,getExecutionContext(self));
+        sync_if_needed(self.device());
+        return self;
+    }
+
 
     // {"schema": "aten::native_batch_norm(Tensor input, Tensor? weight, Tensor? bias, Tensor? running_mean, Tensor? running_var, bool training, float momentum, float eps) -> (Tensor, Tensor, Tensor)", "dispatch": "True", "default": "False"}
     ::std::tuple<Tensor,Tensor,Tensor> native_batch_norm(const Tensor & input, const c10::optional<Tensor> & weight, const c10::optional<Tensor> & bias, const c10::optional<Tensor> & running_mean, const c10::optional<Tensor> & running_var, bool training, double momentum, double eps)
@@ -1167,6 +1293,10 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         std::vector<size_t> full,squeezed;
         std::vector<int> dims;
         dims.assign(dim.begin(),dim.end());
+        if(dims.empty()) {
+            for(int i=0;i<s.size();i++)
+                dims.push_back(i);
+        }
 
         for(auto &axis : dims) {
             if (axis < 0) {
@@ -1612,6 +1742,33 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         sync_if_needed(self.device());
         return self;
     }
+
+    // {"schema": "aten::leaky_relu.out(Tensor self, Scalar negative_slope=0.01, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & leaky_relu_out(const Tensor & self, const Scalar & negative_slope, Tensor & out)
+    {
+        GUARD;
+        double slope = negative_slope.to<double>();
+        Tensor self_c = self.contiguous();
+        dlprim::Tensor x=todp(self_c);
+        dlprim::Tensor y=todp(out);
+        dlprim::core::pointwise_operation({x},{y},{slope},"y0 = x0 > 0 ? x0 : w0 * x0;",getExecutionContext(self));
+        sync_if_needed(self.device());
+        return out;
+    }
+
+    // {"schema": "aten::leaky_relu_backward.grad_input(Tensor grad_output, Tensor self, Scalar negative_slope, bool self_is_result, *, Tensor(a!) grad_input) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & leaky_relu_backward_out(const Tensor & grad_output, const Tensor & self, const Scalar & negative_slope, bool /*self_is_result*/, Tensor & grad_input)
+    {
+        GUARD;
+        double slope = negative_slope.to<double>();
+        Tensor self_c = self.contiguous(),grad_output_c = grad_output.contiguous();
+        dlprim::Tensor y=todp(self_c);
+        dlprim::Tensor dy=todp(grad_output_c);
+        dlprim::Tensor dx=todp(grad_input);
+        dlprim::core::pointwise_operation({y,dy},{dx},{slope},"y0 = x0 > 0 ? x1 : w0 * x1;",getExecutionContext(self));
+        sync_if_needed(self.device());
+        return grad_input;
+    }
     
     // {"schema": "aten::argmax.out(Tensor self, int? dim=None, bool keepdim=False, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & argmax_out(const Tensor & self, c10::optional<int64_t> dim, bool keepdim, Tensor & out)
@@ -1659,6 +1816,63 @@ c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_im
         sync_if_needed(self.device());
         return out;
     }
+
+    // {"schema": "aten::ne.Scalar_out(Tensor self, Scalar other, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"} 
+    Tensor & ne_out(const Tensor & self, const Scalar & other, Tensor & out)
+    {
+        GUARD;
+        Tensor self_c = self.contiguous();
+        dlprim::Tensor x(todp(self_c));
+        dlprim::Tensor y(todp(out));
+        dlprim::core::pointwise_operation_broadcast({x},{y},{other.to<double>()},{x.dtype()},
+                    "y0 = x0 != w0;", 
+                    getExecutionContext(self));
+
+        sync_if_needed(self.device());
+        return out;
+
+    }
+
+    // {"schema": "aten::eq.Tensor_out(Tensor self, Tensor other, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & eq_out(const Tensor & self, const Tensor & other, Tensor & out)
+    {
+        GUARD;
+        Tensor self_c = self.contiguous();
+        dlprim::Tensor x0(todp(self_c));
+        dlprim::Tensor y(todp(out));
+        double value = 0;
+        if(isCPUScalar(other,value)) {
+            dlprim::core::pointwise_operation_broadcast({x0},{y},{value},{x0.dtype()},
+                        "y0 = x0 == w0;", 
+                        getExecutionContext(self));
+        }
+        else {
+            Tensor other_c = other.contiguous();
+            dlprim::Tensor x1(todp(other_c));
+            dlprim::core::pointwise_operation_broadcast({x0,x1},{y},{},
+                    "y0 = x0 == x1;", 
+                    getExecutionContext(self));
+        }
+
+        sync_if_needed(self.device());
+        return out;
+    }
+
+    // {"schema": "aten::bitwise_and.Tensor_out(Tensor self, Tensor other, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & bitwise_and_out(const Tensor & self, const Tensor & other, Tensor & out)
+    {
+        GUARD;
+        Tensor self_c=self.contiguous();
+        Tensor other_c = other.contiguous();
+        dlprim::Tensor x0(todp(self_c)),x1(todp(other_c)),y0(todp(out));
+        dlprim::core::pointwise_operation_broadcast(
+                {x0,x1},{y0},{},
+                (self.dtype() == c10::kBool ? "y0 = x0 && x1;" : "y0 = x0 & x1;"),
+                getExecutionContext(self));
+        sync_if_needed(self.device());
+        return out;
+    }
+    
    
 #if 0 
      // {"schema": "aten::upsample_bilinear2d.out(Tensor self, int[2] output_size, bool align_corners, float? scales_h=None, float? scales_w=None, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
@@ -1697,11 +1911,16 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::_log_softmax.out",&ptdlprim::_log_softmax_out);
       m.impl("aten::nll_loss_forward.output",&ptdlprim::nll_loss_forward_out);
       m.impl("aten::nll_loss_backward.grad_input",&ptdlprim::nll_loss_backward_out);
+      m.impl("aten::binary_cross_entropy",&ptdlprim::binary_cross_entropy);
+      m.impl("aten::binary_cross_entropy_backward",&ptdlprim::binary_cross_entropy_backward);
+      m.impl("aten::binary_cross_entropy_backward.grad_input",&ptdlprim::binary_cross_entropy_backward_out);
       m.impl("aten::_log_softmax_backward_data.out",&ptdlprim::_log_softmax_backward_data_out);
       m.impl("aten::relu_",&ptdlprim::relu_);
       m.impl("aten::mul.out",&ptdlprim::mul_out);
       m.impl("aten::mul_.Scalar",&ptdlprim::mul_scalar_);
       m.impl("aten::add.out",&ptdlprim::add_out);
+      m.impl("aten::sub.out",&ptdlprim::sub_out);
+      m.impl("aten::log.out",&ptdlprim::log_out);
       m.impl("aten::addcmul.out",&ptdlprim::addcmul_out);
       m.impl("aten::sqrt.out",&ptdlprim::sqrt_out);
       m.impl("aten::div.out",&ptdlprim::div_out);
@@ -1709,6 +1928,8 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::_local_scalar_dense",&ptdlprim::_local_scalar_dense);
       m.impl("aten::threshold_backward.grad_input",&ptdlprim::threshold_backward_out);
       m.impl("aten::bernoulli_.float",&ptdlprim::bernoulli_);
+      m.impl("aten::normal_",&ptdlprim::normal_);
+      m.impl("aten::uniform_",&ptdlprim::uniform_);
       m.impl("aten::_adaptive_avg_pool2d_backward",&ptdlprim::_adaptive_avg_pool2d_backward);
       m.impl("aten::native_batch_norm",&ptdlprim::native_batch_norm);
       m.impl("aten::native_batch_norm_backward",&ptdlprim::native_batch_norm_backward);
@@ -1737,8 +1958,13 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::silu_backward.grad_input",&ptdlprim::silu_backward_out);
       m.impl("aten::tanh",&ptdlprim::tanh);
       m.impl("aten::tanh_",&ptdlprim::tanh_);
+      m.impl("aten::leaky_relu.out",&ptdlprim::leaky_relu_out);
+      m.impl("aten::leaky_relu_backward.grad_input",&ptdlprim::leaky_relu_backward_out);
       m.impl("aten::hardswish_backward",&ptdlprim::hardswish_backward);
       m.impl("aten::argmax.out",&ptdlprim::argmax_out);
+      m.impl("aten::ne.Scalar_out",&ptdlprim::ne_out);
+      m.impl("aten::eq.Tensor_out",&ptdlprim::eq_out);
+      m.impl("aten::bitwise_and.Tensor_out",&ptdlprim::bitwise_and_out);
 }
 
 TORCH_LIBRARY_IMPL(aten, AutogradPrivateUse1, m) {

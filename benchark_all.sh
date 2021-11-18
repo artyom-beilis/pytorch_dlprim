@@ -16,5 +16,5 @@ for net in  alexnet \
             efficientnet_b4 \
             regnet_y_400mf 
 do
-    echo $net $(python $base/tools/validate_network.py --model=$net --benchmark --batch=$batch --device=$device | tail -n 1 | awk '{print $4}')
+    echo $net $(timeout 60 python $base/tools/validate_network.py --model=$net --benchmark --batch=$batch --device=$device | tail -n 1 | awk '{print $4}')
 done

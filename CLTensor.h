@@ -273,9 +273,24 @@ namespace ptdlprim {
         switch(tp) {
         case c10::kFloat:
             return dlprim::float_data;
+        case c10::kDouble:
+            return dlprim::double_data;
+        case c10::kHalf:
+            return dlprim::half_data;
+        case c10::kBFloat16:
+            return dlprim::bfloat16_data;
         case c10::kLong:
             return dlprim::int64_data;
+        case c10::kInt:
+            return dlprim::int32_data;
+        case c10::kShort:
+            return dlprim::int16_data;
+        case c10::kChar:
+            return dlprim::int8_data;
         case c10::kByte:
+            return dlprim::uint8_data;
+        case c10::kBool:
+            TORCH_CHECK(sizeof(bool)==1,"Need to make sure tensors have same size");
             return dlprim::uint8_data;
         default:
             throw std::runtime_error(std::string("Unsupported data type:") + c10::toString(tp));
