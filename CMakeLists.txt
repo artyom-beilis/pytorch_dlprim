@@ -7,7 +7,17 @@ find_library(DLPRIM_LIB dlprim_core HINT /opt/dlprim/lib)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -g")
 # Define our library target
-add_library(pt_ocl SHARED op.cpp)
+add_library(pt_ocl SHARED 
+        src/pointwise_ops.cpp
+        src/tensor_ops.cpp
+        src/vision_ops.cpp
+        src/loss_ops.cpp
+        src/random_ops.cpp
+        src/norm_ops.cpp
+        src/utils.cpp
+        src/registeration.cpp
+        src/CLTensor.cpp
+        src/guard.cpp)
 # Enable C++14
 target_compile_features(pt_ocl PRIVATE cxx_std_14)
 # Link against LibTorch
