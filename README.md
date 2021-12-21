@@ -100,6 +100,8 @@ Train includes - io to/from device, zero gadients, forward, backward and optimiz
 2.  Build dlprimitives <https://github.com/artyom-beilis/dlprimitives> and install it, lets say to `/opt/dlprim`
 
     Follow the instructions there: <https://github.com/artyom-beilis/dlprimitives/blob/master/docs/build.md>
+    
+    Note: make sure you use `cl2.hpp` and not older `cl.hpp` i.e. `USE_CL_HPP=OFF`
 
 3.  Build the backend.
 
