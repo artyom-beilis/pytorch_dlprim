@@ -36,7 +36,12 @@ namespace ptdlprim {
 
     class CLCache {
     public:
+        CLCache() {}
+
+        CLCache(CLCache const &) = delete;
+        void operator=(CLCache const &) = delete;
         typedef std::map<std::int64_t,std::list<std::unique_ptr<CLMemAllocation> > > allocation_type;
+        std::mutex lock;
         allocation_type allocation;
 
         std::int64_t allocated_size = 0;
@@ -66,10 +71,8 @@ namespace ptdlprim {
         ~CLContextManager()
         {
             {
-                std::vector<DevData> tmp;
-                tmp.swap(data_);
-                for(DevData &data:tmp)
-                    data.cache.clear();
+                for(auto &data:data_)
+                    data->cache.clear();
             }
             no_cache_ = true;
         }
@@ -162,8 +165,9 @@ namespace ptdlprim {
                     continue;
                 }
                 for(size_t j=0;j<devices.size();j++) {
-                    data_.push_back(DevData());
-                    data_.back().name = std::to_string(i) + ":" + std::to_string(j);
+                    std::unique_ptr<DevData> d(new DevData());
+                    data_.push_back(std::move(d));
+                    data_.back()->name = std::to_string(i) + ":" + std::to_string(j);
                 }
             }
         }
@@ -174,7 +178,7 @@ namespace ptdlprim {
                 i = 0;
             if(i >= int(data_.size()))
                 throw std::runtime_error("Invalid Device #" + std::to_string(i));
-            DevData &res = data_[i];
+            DevData &res = *data_[i];
             if(res.ready)
                 return res;
             res.ctx=dlprim::Context(res.name);
@@ -186,7 +190,7 @@ namespace ptdlprim {
         }
 
         
-        std::vector<DevData> data_;
+        std::vector<std::unique_ptr<DevData> > data_;
         bool no_cache_;
     };
 

@@ -19,6 +19,8 @@ namespace ptdlprim {
         if(allocated_size == 0 && debug_allocator)
             setlocale(LC_ALL,"");
 
+        std::unique_lock<std::mutex> g(lock);
+
         std::int64_t size = round(orig_size);
         std::unique_ptr<CLMemAllocation> res;
         
@@ -53,6 +55,8 @@ namespace ptdlprim {
     }
     void CLCache::release(std::unique_ptr<CLMemAllocation> &&mem)
     {
+        std::unique_lock<std::mutex> g(lock);
+
         int64_t size = mem->size;
         cached_size += mem->size;
         requested_size -= mem->orig_size;
@@ -63,6 +67,7 @@ namespace ptdlprim {
     
     void CLCache::clear()
     {
+        std::unique_lock<std::mutex> g(lock);
         {
             allocation_type tmp;
             tmp.swap(allocation);
