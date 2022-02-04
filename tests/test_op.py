@@ -34,12 +34,73 @@ def test_fwd(inputs,call,device):
             xs_dev.append(x_dev)
 
     y_cpu = call(*xs_cpu)
+    call.to(device)
     y_dev = call(*xs_dev)
 
-    if get_diff(y_cpu,y_dev) > 1e-3:
+    if get_diff(y_cpu,y_dev) > 1e-6:
+        raise Exception("Diff too big")
+    print("Ok")
+
+def test_fwd_bwd_op(inputs,call,device,randgen=torch.randn):
+    xs_cpu = []
+    xs_dev = []
+    p_names = set()
+    with torch.no_grad():
+        p_names = set(call.state_dict())
+
+    with torch.no_grad():
+        for s,limit in inputs:
+            if limit <= 0:
+                x_cpu = randgen(s)
+                x_dev = x_cpu.to(device)
+                x_cpu.requires_grad = True
+                x_dev.requires_grad = True
+            else:
+                x_cpu = torch.randint(limit,s)
+                x_dev = x_cpu.to(device)
+            xs_cpu.append(x_cpu)
+            xs_dev.append(x_dev)
+
+
+    y_cpu = call(*xs_cpu)
+
+    with torch.no_grad():
+        dy_cpu = torch.randn(y_cpu.shape)
+        dy_dev = dy_cpu.to(device)
+    y_cpu.backward(dy_cpu,retain_graph=True)
+
+    dW_cpu = {}
+    for n in p_names:
+        dW_cpu[n] = call.get_parameter(n).grad.detach().clone()
+
+    call.zero_grad()
+    call = call.to(device)
+    y_dev = call(*xs_dev)
+    y_dev.backward(dy_dev,retain_graph=True)
+    dW_dev = {}
+    for n in p_names:
+        dW_dev[n] = call.get_parameter(n).grad.detach().clone()
+
+
+    with torch.no_grad():
+        diffs = []
+        diffs.append(('y',get_diff(y_cpu,y_dev)))
+        for i in range(len(inputs)):
+            if inputs[i][1] <= 0:
+                diffs.append(('x%d' % i ,get_diff(xs_cpu[i].grad,xs_dev[i].grad)))
+        for name in p_names:
+            diffs.append(('p_' + name,get_diff(dW_cpu[name],dW_dev[name])))
+
+        diffs.sort(key=lambda x:x[1],reverse=True)
+
+    for name,diff in diffs:
+        print("%10s %f" % (name,diff))
+    max_diff = diffs[0][1]
+    if max_diff > 1e-3:
         raise Exception("Diff too big")
 
-def test_fwd_bwd(inputs,call,device,randgen=torch.randn):
+
+def test_fwd_bwd(inputs,call,device,randgen=torch.randn,with_params = False):
     xs_cpu = []
     xs_dev = []
     with torch.no_grad():
@@ -55,8 +116,14 @@ def test_fwd_bwd(inputs,call,device,randgen=torch.randn):
             xs_cpu.append(x_cpu)
             xs_dev.append(x_dev)
 
+    if with_params:
+        for p in call.state_dict():
+            print(p)
+        call_dev = call.to(device)
+    else:
+        call_dev = call
     y_cpu = call(*xs_cpu)
-    y_dev = call(*xs_dev)
+    y_dev = call_dev(*xs_dev)
 
     print(y_cpu.shape)
     print(y_dev.shape)
@@ -153,6 +220,15 @@ def test_all(device):
     test_fwd_bwd([([4,3,5],-1),([4,3,5],-1)],torch.nn.BCELoss(),device,torch.rand)
     print("BCE Loss no reduction")
     test_fwd_bwd([([4,3,5],-1),([4,3,5],-1)],torch.nn.BCELoss(reduction='none'),device,torch.rand)
+
+    print("Conv")
+    test_fwd_bwd_op([([2,6,10,20],-1)],torch.nn.Conv2d(6,8,[3,5],stride=[1,2],padding=[1,2],dilation=1,groups=2),device)
+    print("ConvTr")
+    test_fwd_bwd_op([([2,6,10,20],-1)],torch.nn.ConvTranspose2d(6,8,[3,5],stride=[1,2],padding=[1,2],dilation=1,groups=2),device)
+    print("ConvTr pad")
+    test_fwd_bwd_op([([2,6,10,20],-1)],torch.nn.ConvTranspose2d(6,8,[3,5],stride=[1,2],padding=[1,2],output_padding=[0,1],dilation=1,groups=2),device)
+    print("ConvTr")
+    test_fwd_bwd_op([([2,6,10,20],-1)],torch.nn.ConvTranspose2d(6,8,[3,5],stride=[1,2],padding=[1,2],dilation=1,groups=1,bias=False),device)
 
 
 

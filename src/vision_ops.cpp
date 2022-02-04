@@ -23,12 +23,21 @@ using c10::DeviceType;
 
     using torch::Tensor;
 
-    dlprim::core::Conv2DSettings conv_config(dlprim::Tensor &X,dlprim::Tensor &W,IntArrayRef padding,IntArrayRef stride,IntArrayRef dilation,int groups)
+    dlprim::core::Conv2DSettings conv_config(bool transposed,dlprim::Tensor &X,dlprim::Tensor &W,
+                    IntArrayRef padding,IntArrayRef stride,IntArrayRef dilation,IntArrayRef output_padding,int groups)
     {
         TORCH_CHECK(stride.size()==2 && padding.size() == 2 && dilation.size() == 2,"Expecting size of parameters=2");
+        if(transposed)
+            TORCH_CHECK(output_padding.size() == 2,"Expecting transposed size == 2")
         dlprim::Convolution2DConfigBase cfg_base;
-        cfg_base.channels_in = X.shape()[1];
-        cfg_base.channels_out = W.shape()[0];
+        if(!transposed) {
+            cfg_base.channels_in = W.shape()[1] * groups;
+            cfg_base.channels_out = W.shape()[0];
+        }
+        else {
+            cfg_base.channels_out = W.shape()[1] * groups;
+            cfg_base.channels_in = W.shape()[0];
+        }
         for(int i=0;i<2;i++) {
             cfg_base.kernel[i] = W.shape()[i+2];
             cfg_base.pad[i] = padding[i];
@@ -36,8 +45,13 @@ using c10::DeviceType;
             cfg_base.dilate[i] = dilation[i];
             cfg_base.groups = groups;
         }
-        dlprim::core::Conv2DSettings cfg(cfg_base,X.shape(),X.dtype()); 
-        return cfg;
+        if(!transposed) {
+            return dlprim::core::Conv2DSettings(cfg_base,X.shape(),X.dtype()); 
+        }
+        else {
+            int op[2] = {int(output_padding[0]),int(output_padding[1])};
+            return dlprim::core::Conv2DSettings(cfg_base,dlprim::core::Conv2DBase::get_output_shape_transposed(cfg_base,X.shape(),op),X.dtype());
+        }
     }
 
     Tensor convolution_overrideable(const Tensor & input,
@@ -47,11 +61,10 @@ using c10::DeviceType;
                                     IntArrayRef padding,
                                     IntArrayRef dilation,
                                     bool transposed,
-                                    IntArrayRef /*output_padding*/,
+                                    IntArrayRef output_padding,
                                     int64_t groups)
     {
         GUARD;
-        TORCH_CHECK(!transposed,"Transposed not implemeted yet");
         Tensor X_tmp = input.contiguous();
         dlprim::Tensor X = todp(X_tmp);
         dlprim::Tensor W = todp(weight);
@@ -62,47 +75,71 @@ using c10::DeviceType;
         if(with_bias) {
             B=todp(*bias);
         }
-        dlprim::core::Conv2DSettings cfg = conv_config(X,W,padding,stride,dilation,groups);
+
+        dlprim::core::Conv2DSettings cfg = conv_config(transposed,X,W,padding,stride,dilation,output_padding,groups);
 
         dlprim::ExecutionContext q = getExecutionContext(input);
         dlprim::Context ctx(q);
-        auto conv = dlprim::core::Conv2DForward::create(ctx,cfg,with_bias);
-        size_t ws_size = conv->workspace();
-        at::DataPtr ws_ptr;
-        dlprim::Tensor ws = make_workspace(ws_ptr,ws_size,input.device());
-        dlprim::Shape rs = dlprim::core::Conv2DForward::get_output_shape(cfg,X.shape());
+        torch::Tensor result;
+        if(!transposed) {
+            auto conv = dlprim::core::Conv2DForward::create(ctx,cfg,with_bias);
+            WSGuard wsg(conv->workspace(),input.device());
 
-        torch::Tensor result = new_tensor_as(rs,input);
-        dlprim::Tensor Y = todp(result);
-        conv->enqueue(X,W,(with_bias ? &B : nullptr),Y,ws,0,q);
+            dlprim::Shape rs = dlprim::core::Conv2DForward::get_output_shape(cfg,X.shape());
+            result = new_tensor_as(rs,input);
+            dlprim::Tensor Y = todp(result);
+            conv->enqueue(X,W,(with_bias ? &B : nullptr),Y,wsg.ws,0,q);
+        }
+        else {
+            int opad[2] = {int(output_padding[0]),int(output_padding[1]) };
+            dlprim::Shape rs = dlprim::core::Conv2DBase::get_output_shape_transposed(cfg,X.shape(),opad);
+
+            std::swap(cfg.channels_in,cfg.channels_out);
+            auto conv = dlprim::core::Conv2DBackwardData::create(ctx,cfg);
+            WSGuard wsg(conv->workspace(),input.device());
+            result = new_tensor_as(rs,input);
+            dlprim::Tensor Y = todp(result);
+            conv->enqueue(Y,W,X,wsg.ws,0,q);
+            if(with_bias)
+                dlprim::core::add_bias(Y,B,q);
+        }
         sync_if_needed(input.device());
 
         return result;
     }
 
     // {"schema": "aten::convolution_backward_overrideable(Tensor grad_output, Tensor input, Tensor weight, int[] stride, int[] padding, int[] dilation, bool transposed, int[] output_padding, int groups, bool[3] output_mask) -> (Tensor grad_input, Tensor grad_weight, Tensor grad_bias)", "dispatch": "True", "default": "True"}
-    ::std::tuple<Tensor,Tensor,Tensor> convolution_backward_overrideable(const Tensor & grad_output, const Tensor & input, const Tensor & weight, IntArrayRef stride, IntArrayRef padding, IntArrayRef dilation, bool transposed, IntArrayRef /*output_padding*/, int64_t groups, ::std::array<bool,3> output_mask)
+    ::std::tuple<Tensor,Tensor,Tensor> convolution_backward_overrideable(const Tensor & grad_output, const Tensor & input, const Tensor & weight, IntArrayRef stride, IntArrayRef padding, IntArrayRef dilation, bool transposed, IntArrayRef output_padding, int64_t groups, ::std::array<bool,3> output_mask)
     {
         GUARD;
-        TORCH_CHECK(!transposed,"Transposed conv not implemented yet");
         Tensor grad_output_c = grad_output.contiguous(), input_c = input.contiguous();
         dlprim::Tensor dy = todp(grad_output_c);
         dlprim::Tensor x  = todp(input_c);
         dlprim::Tensor W  = todp(weight);
-        dlprim::core::Conv2DSettings cfg = conv_config(x,W,padding,stride,dilation,groups);
+        dlprim::core::Conv2DSettings cfg = conv_config(transposed,x,W,padding,stride,dilation,output_padding,groups);
         dlprim::ExecutionContext q = getExecutionContext(input);
         dlprim::Context ctx(q);
 
         size_t ws_size = 0;
         std::unique_ptr<dlprim::core::Conv2DBackwardData> bwd_data;
+        std::unique_ptr<dlprim::core::Conv2DForward> bwd_data_tr;
         std::unique_ptr<dlprim::core::Conv2DBackwardFilter> bwd_filter;
         std::unique_ptr<dlprim::core::BiasBackwardFilter> bwd_bias;
 
         torch::Tensor data_diff,filter_diff,bias_diff;
 
+        if(transposed)
+            std::swap(cfg.channels_out,cfg.channels_in);
+
         if(output_mask[0]) {
-            bwd_data = std::move(dlprim::core::Conv2DBackwardData::create(ctx,cfg)); 
-            ws_size = std::max(ws_size,bwd_data->workspace());
+            if(!transposed) {
+                bwd_data = std::move(dlprim::core::Conv2DBackwardData::create(ctx,cfg)); 
+                ws_size = std::max(ws_size,bwd_data->workspace());
+            }
+            else {
+                bwd_data_tr = std::move(dlprim::core::Conv2DForward::create(ctx,cfg,false));
+                ws_size = std::max(ws_size,bwd_data_tr->workspace());
+            }
         }
         if(output_mask[1]) {
             bwd_filter = std::move(dlprim::core::Conv2DBackwardFilter::create(ctx,cfg)); 
@@ -118,13 +155,19 @@ using c10::DeviceType;
         if(output_mask[0]) {
             data_diff = new_tensor_as(x.shape(),input);
             dlprim::Tensor dx = todp(data_diff);
-            bwd_data->enqueue(dx,W,dy,ws,0,q);
+            if(!transposed)
+                bwd_data->enqueue(dx,W,dy,ws,0,q);
+            else 
+                bwd_data_tr->enqueue(dy,W,nullptr,dx,ws,0,q);
         }
 
         if(output_mask[1]) {
             filter_diff = new_tensor_as(W.shape(),weight);
             dlprim::Tensor dW = todp(filter_diff);
-            bwd_filter->enqueue(x,dW,dy,ws,0,q);
+            if(!transposed)
+                bwd_filter->enqueue(x,dW,dy,ws,0,q);
+            else
+                bwd_filter->enqueue(dy,dW,x,ws,0,q);
         }
 
         if(output_mask[2]) {
