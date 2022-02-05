@@ -34,7 +34,6 @@ def test_fwd(inputs,call,device):
             xs_dev.append(x_dev)
 
     y_cpu = call(*xs_cpu)
-    call.to(device)
     y_dev = call(*xs_dev)
 
     if get_diff(y_cpu,y_dev) > 1e-6:
@@ -220,6 +219,16 @@ def test_all(device):
     test_fwd_bwd([([4,3,5],-1),([4,3,5],-1)],torch.nn.BCELoss(),device,torch.rand)
     print("BCE Loss no reduction")
     test_fwd_bwd([([4,3,5],-1),([4,3,5],-1)],torch.nn.BCELoss(reduction='none'),device,torch.rand)
+    print("Min")
+    test_fwd([([4,3,5],-1)],torch.min,device)
+    print("Max")
+    test_fwd([([4,3,5],-1)],torch.max,device)
+    print("Clamp 1")
+    test_fwd([([4,3,5],-1)],lambda x:torch.clamp(x,min=-0.2,max=0.3),device)
+    print("Clamp 2")
+    test_fwd([([4,3,5],-1)],lambda x:torch.clamp(x,min=-0.2),device)
+    print("Clamp 3")
+    test_fwd([([4,3,5],-1)],lambda x:torch.clamp(x,max=0.3),device)
 
     print("Conv")
     test_fwd_bwd_op([([2,6,10,20],-1)],torch.nn.Conv2d(6,8,[3,5],stride=[1,2],padding=[1,2],dilation=1,groups=2),device)

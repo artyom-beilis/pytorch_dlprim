@@ -68,27 +68,59 @@ using c10::DeviceType;
         data.getIntrusivePtr()->set_sizes_contiguous(new_size);
         return data;
     }
+
+    static Tensor make_contiguous_as_target_type(Tensor const &self,Tensor const &dst)
+    {
+        GUARD;
+        Tensor c_src = self;
+        if(self.dtype() != dst.dtype() || !self.is_contiguous()) {
+            TensorOptions options = TensorOptions().dtype(dst.dtype()).memory_format(MemoryFormat::Contiguous);
+            Tensor temp = at::empty_like(c_src,options);
+            temp.copy_(c_src);
+            c_src = temp;
+        }
+        return c_src;
+    }
+
     Tensor _copy_from(const Tensor & self, const Tensor & dst, bool /*non_blocking*/)
     {
         GUARD;
+
         if(dst.device().type() == c10::DeviceType::CPU && self.device().type() == c10::DeviceType::OPENCL) {
-            Tensor self_c = self.contiguous();
-            dlprim::Tensor t(todp(self_c));
-            TORCH_CHECK(dst.is_contiguous(),"cpu/gpu need to be contiguous");
+            Tensor c_src = make_contiguous_as_target_type(self,dst);
+
+            dlprim::Tensor t(todp(c_src));
             auto ec = getExecutionContext(self);
-            void *ptr = dst.data_ptr();
-            t.to_host(ec,ptr);
+            if(dst.is_contiguous()) {
+                void *ptr = dst.data_ptr();
+                t.to_host(ec,ptr);
+            }
+            else {
+                TensorOptions options = TensorOptions().memory_format(MemoryFormat::Contiguous);
+                Tensor dst_c = at::empty_like(dst,options);
+                void *ptr = dst_c.data_ptr();
+                t.to_host(ec,ptr);
+                dst.copy_(dst_c);
+            }
         }
         else if(self.device().type() == c10::DeviceType::CPU && dst.device().type() == c10::DeviceType::OPENCL) {
-            dlprim::Tensor t(todp(dst));
+            Tensor c_src = make_contiguous_as_target_type(self,dst);
             auto ec = getExecutionContext(dst);
-            Tensor cself = self.contiguous();
-            void *ptr = cself.data_ptr();
-            t.to_device(ec,ptr);
+            if(dst.is_contiguous()) {
+                dlprim::Tensor t(todp(dst));
+                t.to_device(ec,c_src.data_ptr());
+            }
+            else {
+                TensorOptions options = TensorOptions().memory_format(MemoryFormat::Contiguous);
+                Tensor temp = at::empty_like(dst,options);
+                dlprim::Tensor t(todp(temp));
+                t.to_device(ec,c_src.data_ptr());
+                dst.copy_(temp);
+            }
         }
         else if(self.device().type() == c10::DeviceType::OPENCL && dst.device().type() == c10::DeviceType::OPENCL) {
             if(self.is_contiguous() && dst.is_contiguous()) {
-                dlprim::core::pointwise_operation({todp(self)},{todp(dst)},{},"y0=x0;",getExecutionContext(self.device()));
+                dlprim::core::pointwise_operation_broadcast({todp(self)},{todp(dst)},{},"y0=x0;",getExecutionContext(self.device()));
             }
             else {
                 auto src_sizes  = self.sizes();
@@ -103,7 +135,9 @@ using c10::DeviceType;
                 dlprim::Shape tgt_std=dlprim::Shape::from_range(tgt_stride.begin(),tgt_stride.end());
                 dlprim::core::copy_strided(shape,buffer_from_tensor(self),src_offset,src_std,
                                                  buffer_from_tensor(dst), tgt_offset,tgt_std,
-                                                 todp(self.dtype()),getExecutionContext(self.device()));
+                                                 todp(self.dtype()),
+                                                 todp(dst.dtype()),
+                                                 getExecutionContext(self.device()));
             }
             sync_if_needed(self.device());
         }

@@ -784,6 +784,43 @@ using c10::DeviceType;
         sync_if_needed(self.device());
         return out;
     }
+    
+    static Tensor min_or_max(const Tensor & self,bool is_min)
+    {
+        GUARD;
+        Tensor self_cont = self.contiguous();
+        dlprim::Tensor X = todp(self_cont);
+        Tensor result = new_tensor_as(dlprim::Shape(),self);
+        dlprim::Tensor Y = todp(result);
+        TORCH_CHECK(X.dtype() == dlprim::float_data,"FIXME only float supported");
+        dlprim::ExecutionContext q=getExecutionContext(self);
+        dlprim::Context ctx(q);
+        auto op = dlprim::core::PointwiseOperationBroadcastReduce::create(
+                    ctx,
+                    {X.specs()},{Y.specs()},
+                    0,X.dtype(),
+                    "y0=x0;",
+                    std::string("reduce_y0 = ") + (is_min ? " FLT_MAX;" : " -FLT_MAX;"),
+                    std::string("reduce_y0 = y0 ") + (is_min ? "<" : ">") +  " reduce_y0 ? y0 : reduce_y0;"
+                    );
+        WSGuard ws_guard(op->workspace(),self.device());
+        op->enqueue({X},{Y},ws_guard.ws,{},{1},{0},q);
+
+        sync_if_needed(self.device());
+        return result;
+    }
+
+    // {"schema": "aten::min(Tensor self) -> Tensor", "dispatch": "True", "default": "False"}
+    Tensor min(const Tensor & self)
+    {
+        return min_or_max(self,true);
+    }
+
+    // {"schema": "aten::max(Tensor self) -> Tensor", "dispatch": "True", "default": "False"}
+    Tensor max(const Tensor & self)
+    {
+        return min_or_max(self,false);
+    }
 
     // {"schema": "aten::ne.Scalar_out(Tensor self, Scalar other, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"} 
     Tensor & ne_out(const Tensor & self, const Scalar & other, Tensor & out)
@@ -837,6 +874,26 @@ using c10::DeviceType;
                 {x0,x1},{y0},{},
                 (self.dtype() == c10::kBool ? "y0 = x0 && x1;" : "y0 = x0 & x1;"),
                 getExecutionContext(self));
+        sync_if_needed(self.device());
+        return out;
+    }
+
+    // {"schema": "aten::clamp.out(Tensor self, Scalar? min=None, Scalar? max=None, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & clamp_out(const Tensor & self, const c10::optional<Scalar> & min, const c10::optional<Scalar> & max, Tensor & out)
+    {
+        GUARD;
+        Tensor self_c = self.contiguous();
+        dlprim::Tensor Y = todp(out);
+        dlprim::Tensor X = todp(self);
+        auto q = getExecutionContext(self);
+        if(min && max)
+            dlprim::core::pointwise_operation({X},{Y},{min->to<double>(),max->to<double>()},"y0 = max(w0,min(w1,x0));",q);
+        else if(min)
+            dlprim::core::pointwise_operation({X},{Y},{min->to<double>()},"y0 = max(w0,x0);",q);
+        else if(max)
+            dlprim::core::pointwise_operation({X},{Y},{max->to<double>()},"y0 = min(w0,x0);",q);
+        else
+            dlprim::core::pointwise_operation({X},{Y},{},"y0 = x0;",q);
         sync_if_needed(self.device());
         return out;
     }
@@ -906,6 +963,9 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::ne.Scalar_out",&ptdlprim::ne_out);
       m.impl("aten::eq.Tensor_out",&ptdlprim::eq_out);
       m.impl("aten::bitwise_and.Tensor_out",&ptdlprim::bitwise_and_out);
+      m.impl("aten::min",&ptdlprim::min);
+      m.impl("aten::max",&ptdlprim::max);
+      m.impl("aten::clamp.out",&ptdlprim::clamp_out);
 }
 
 TORCH_LIBRARY_IMPL(aten, AutogradPrivateUse1, m) {
