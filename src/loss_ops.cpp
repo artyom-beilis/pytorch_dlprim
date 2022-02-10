@@ -116,7 +116,7 @@ using c10::DeviceType;
 
         // -w (y - x) / (x - x^2)
         dlprim::core::pointwise_operation_broadcast({x,y,dloss},{dx},{scale},
-                "y0 = -(x1 - x0) / (x0 - x0*x0) * x2 * w0;",
+                "y0 = -(x1 - x0) / max(1e-12f,x0 - x0*x0) * x2 * w0;",
                 getExecutionContext(self));
         sync_if_needed(self.device());
         return grad_input;
