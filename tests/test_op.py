@@ -99,7 +99,7 @@ def test_fwd_bwd_op(inputs,call,device,randgen=torch.randn):
         raise Exception("Diff too big")
 
 
-def test_fwd_bwd(inputs,call,device,randgen=torch.randn,with_params = False):
+def test_fwd_bwd(inputs,call,device,randgen=torch.randn):
     xs_cpu = []
     xs_dev = []
     with torch.no_grad():
@@ -115,14 +115,8 @@ def test_fwd_bwd(inputs,call,device,randgen=torch.randn,with_params = False):
             xs_cpu.append(x_cpu)
             xs_dev.append(x_dev)
 
-    if with_params:
-        for p in call.state_dict():
-            print(p)
-        call_dev = call.to(device)
-    else:
-        call_dev = call
     y_cpu = call(*xs_cpu)
-    y_dev = call_dev(*xs_dev)
+    y_dev = call(*xs_dev)
 
     print(y_cpu.shape)
     print(y_dev.shape)
@@ -219,10 +213,16 @@ def test_all(device):
     test_fwd_bwd([([4,3,5],-1),([4,3,5],-1)],torch.nn.BCELoss(),device,torch.rand)
     print("BCE Loss no reduction")
     test_fwd_bwd([([4,3,5],-1),([4,3,5],-1)],torch.nn.BCELoss(reduction='none'),device,torch.rand)
+    print("MSE Loss")
+    test_fwd_bwd([([4,3,5],-1),([4,3,5],-1)],torch.nn.MSELoss(),device,torch.rand)
+    print("MSE Loss no reduction")
+    test_fwd_bwd([([4,3,5],-1),([4,3,5],-1)],torch.nn.MSELoss(reduction='none'),device,torch.rand)
     print("Min")
     test_fwd([([4,3,5],-1)],torch.min,device)
     print("Max")
     test_fwd([([4,3,5],-1)],torch.max,device)
+    print("Dot")
+    test_fwd([([16],-1),([16],-1)],torch.dot,device)
     print("Clamp 1")
     test_fwd([([4,3,5],-1)],lambda x:torch.clamp(x,min=-0.2,max=0.3),device)
     print("Clamp 2")

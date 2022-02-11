@@ -163,6 +163,57 @@ using c10::DeviceType;
         sync_if_needed(grad_output.device());
         return out;
     }
+    
+    // {"schema": "aten::mse_loss(Tensor self, Tensor target, int reduction=Mean) -> Tensor", "dispatch": "True", "default"
+    Tensor mse_loss(const Tensor & self, const Tensor & target, int64_t reduction)
+    {
+        GUARD;
+        Tensor self_c = self.contiguous();
+        dlprim::Tensor x=todp(self_c);
+        Tensor target_c = target.contiguous();
+        dlprim::Tensor lbl=todp(target_c);
+        bool reduce = false;
+        float scale = 1;
+        switch(reduction) {
+        case 0: reduce=false; break; // None
+        case 1: reduce=true; scale = 1.0f/x.shape().total_size(); break; // Mean
+        case 2: reduce=true; break; // sum
+        }
+        Tensor output = new_tensor_as(reduce ? dlprim::Shape() : x.shape(),self_c);
+        dlprim::Tensor y=todp(output);
+        auto q = getExecutionContext(self);
+        dlprim::Context ctx(q);
+        auto op = dlprim::core::PointwiseOperationBroadcastReduce::create(ctx,
+                    {x.specs(),lbl.specs()},{y.specs()},0,x.dtype(),
+                    "y0 = (x0-x1)*(x0-x1);",
+                    "reduce_y0 = 0;",
+                    "reduce_y0 += y0;");
+        WSGuard wsg(op->workspace(),self.device());
+        op->enqueue({x,lbl},{y},wsg.ws,{},{scale},{0},q);
+        sync_if_needed(self.device());
+
+        return output;
+    }
+    // {"schema": "aten::mse_loss_backward(Tensor grad_output, Tensor self, Tensor target, int reduction)
+    Tensor mse_loss_backward(const Tensor & grad_output, const Tensor & self, const Tensor & target, int64_t reduction)
+    {
+        GUARD;
+        Tensor grad_output_c = grad_output.contiguous();
+        Tensor self_c = self.contiguous();
+        Tensor target_c = target.contiguous();
+        dlprim::Tensor x = todp(self_c);
+        dlprim::Tensor dy = todp(grad_output_c);
+        dlprim::Tensor lbl = todp(target_c);
+        Tensor result = new_tensor_as(x.shape(),self_c);
+        dlprim::Tensor dx = todp(result);
+        double scale = reduction == 1 ? (1.0f/x.shape().total_size()) : 1.0;
+        dlprim::core::pointwise_operation_broadcast({dy,x,lbl},{dx},{scale},
+            "y0 = 2*(x1 -x2) * x0 * w0;",getExecutionContext(self.device()));
+        sync_if_needed(self.device());
+        return result;
+    }
+
+
 } // namespace dlprim
 
 TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
@@ -173,4 +224,6 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::binary_cross_entropy_backward.grad_input",&ptdlprim::binary_cross_entropy_backward_out);
       m.impl("aten::_log_softmax.out",&ptdlprim::_log_softmax_out);
       m.impl("aten::_log_softmax_backward_data.out",&ptdlprim::_log_softmax_backward_data_out);
+      m.impl("aten::mse_loss",&ptdlprim::mse_loss);
+      m.impl("aten::mse_loss_backward",&ptdlprim::mse_loss_backward);
 } 

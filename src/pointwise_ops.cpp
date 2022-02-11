@@ -216,6 +216,67 @@ using c10::DeviceType;
         sync_if_needed(self.device());
         return out;
     }
+    
+    Tensor & comp_out(const Tensor & self, const Scalar & other, Tensor & out,std::string const &op)
+    {
+        GUARD;
+        Tensor  self_c = self.contiguous();
+        dlprim::Tensor x0=todp(self_c);
+        dlprim::Tensor y0=todp(out);
+        float w0 = other.toDouble();
+        dlprim::core::pointwise_operation_broadcast({x0},{y0},{w0},
+                                      "y0 = x0 " + op + " w0 ? 1 : 0;",
+                                      getExecutionContext(self));
+        
+        sync_if_needed(self.device());
+        return out;
+    }
+    // {"schema": "aten::le.Scalar_out(Tensor self, Scalar other, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & le_out(const Tensor & self, const Scalar & other, Tensor & out)
+    {
+        return comp_out(self,other,out,"<=");
+    }
+    // {"schema": "aten::ge.Scalar_out(Tensor self, Scalar other, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & ge_out(const Tensor & self, const Scalar & other, Tensor & out)
+    {
+        return comp_out(self,other,out,">=");
+    }
+
+    // {"schema": "aten::lt.Scalar_out(Tensor self, Scalar other, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & lt_out(const Tensor & self, const Scalar & other, Tensor & out)
+    {
+        return comp_out(self,other,out,"<");
+    }
+    // {"schema": "aten::gt.Scalar_out(Tensor self, Scalar other, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & gt_out(const Tensor & self, const Scalar & other, Tensor & out)
+    {
+        return comp_out(self,other,out,">");
+    }
+
+
+
+    // {"schema": "aten::neg.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & neg_out(const Tensor & self, Tensor & out)
+    {
+        GUARD;
+        Tensor  self_c = self.contiguous();
+        dlprim::Tensor x0=todp(self_c);
+        dlprim::Tensor y0=todp(out);
+        dlprim::core::pointwise_operation_broadcast({x0},{y0},{},"y0=-x0;",getExecutionContext(self));
+        sync_if_needed(self.device());
+        return out;
+    }
+    // {"schema": "aten::reciprocal.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & reciprocal_out(const Tensor & self, Tensor & out)
+    {
+        GUARD;
+        Tensor  self_c = self.contiguous();
+        dlprim::Tensor x0=todp(self_c);
+        dlprim::Tensor y0=todp(out);
+        dlprim::core::pointwise_operation_broadcast({x0},{y0},{},"y0=1.0/x0;",getExecutionContext(self));
+        sync_if_needed(self.device());
+        return out;
+    }
 
     // {"schema": "aten::sqrt.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & sqrt_out(const Tensor & self, Tensor & out)
@@ -613,8 +674,11 @@ using c10::DeviceType;
     Tensor & sigmoid_(Tensor & self)
     {
         GUARD;
-        dlprim::Tensor X=todp(self);
+        Tensor self_c = self.contiguous();
+        dlprim::Tensor X=todp(self_c);
         dlprim::core::activation_forward(X,X,dlprim::StandardActivations::sigmoid,getExecutionContext(self));
+        if(!self.is_contiguous())
+            self.copy_(self_c);
         sync_if_needed(self.device());
         return self;
     }
@@ -705,8 +769,11 @@ using c10::DeviceType;
     Tensor & tanh_(Tensor & self)
     {
         GUARD;
-        dlprim::Tensor X=todp(self);
+        Tensor self_c = self.contiguous();
+        dlprim::Tensor X=todp(self_c);
         dlprim::core::activation_forward(X,X,dlprim::StandardActivations::tanh,getExecutionContext(self));
+        if(!self.is_contiguous())
+            self.copy_(self_c);
         sync_if_needed(self.device());
         return self;
     }
@@ -821,6 +888,33 @@ using c10::DeviceType;
     {
         return min_or_max(self,false);
     }
+
+    // {"schema": "aten::dot(Tensor self, Tensor tensor) -> Tensor", "dispatch": "True", "default": "False"}
+    Tensor dot(const Tensor & self, const Tensor & tensor)
+    {
+        GUARD;
+        Tensor self_c = self.contiguous();
+        Tensor tensor_c = tensor.contiguous();
+        dlprim::Tensor x0=todp(self_c);
+        dlprim::Tensor x1=todp(tensor_c);
+        Tensor result = new_tensor_as(dlprim::Shape(),self_c);
+        dlprim::Tensor y=todp(result);
+        auto q = getExecutionContext(self);
+        dlprim::Context ctx(q);
+        auto op = dlprim::core::PointwiseOperationBroadcastReduce::create(
+                ctx,
+                {x0.specs(),x1.specs()},{y.specs()},
+                0,dlprim::float_data,
+                "y0=x0*x1;",
+                "reduce_y0 = 0;",
+                "reduce_y0 += y0;");
+
+        WSGuard wsg(op->workspace(),self.device());
+        op->enqueue({x0,x1},{y},wsg.ws,{},{1},{0},q);
+        sync_if_needed(self.device());
+        return result;
+    }
+
 
     // {"schema": "aten::ne.Scalar_out(Tensor self, Scalar other, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"} 
     Tensor & ne_out(const Tensor & self, const Scalar & other, Tensor & out)
@@ -962,10 +1056,18 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::argmax.out",&ptdlprim::argmax_out);
       m.impl("aten::ne.Scalar_out",&ptdlprim::ne_out);
       m.impl("aten::eq.Tensor_out",&ptdlprim::eq_out);
+      m.impl("aten::le.Scalar_out",&ptdlprim::le_out);
+      m.impl("aten::ge.Scalar_out",&ptdlprim::ge_out);
+      m.impl("aten::lt.Scalar_out",&ptdlprim::lt_out);
+      m.impl("aten::gt.Scalar_out",&ptdlprim::gt_out);
       m.impl("aten::bitwise_and.Tensor_out",&ptdlprim::bitwise_and_out);
       m.impl("aten::min",&ptdlprim::min);
       m.impl("aten::max",&ptdlprim::max);
       m.impl("aten::clamp.out",&ptdlprim::clamp_out);
+      m.impl("aten::neg.out",&ptdlprim::neg_out);
+      m.impl("aten::reciprocal.out",&ptdlprim::reciprocal_out);
+      m.impl("aten::dot",&ptdlprim::dot);
+      
 }
 
 TORCH_LIBRARY_IMPL(aten, AutogradPrivateUse1, m) {
