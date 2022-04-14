@@ -1,5 +1,10 @@
 #include "CLTensor.h"
 
+#ifdef DLPRIM_USE_CL1_HPP
+#error "DLPrimitives need to be compiled agaist cl2.hpp in order to work with pytorch. cl.hpp is not supported and known to fail"
+#endif
+
+
 namespace ptdlprim {
     std::uint64_t CLCache::round(uint64_t v)
     {
