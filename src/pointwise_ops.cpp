@@ -178,6 +178,17 @@ using c10::DeviceType;
         return out;
     }
 
+    // {"schema": "aten::exp.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & exp_out(const Tensor & self, Tensor & out)
+    {
+        GUARD;
+        Tensor self_c=self.contiguous();
+        dlprim::core::pointwise_operation({todp(self_c)},{todp(out)},{},
+                    "y0 = exp(x0);",getExecutionContext(self));
+        sync_if_needed(self.device());
+        return out;
+    }
+
     // {"schema": "aten::log.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & log_out(const Tensor & self, Tensor & out)
     {
@@ -1022,6 +1033,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::mul_.Scalar",&ptdlprim::mul_scalar_);
       m.impl("aten::add.out",&ptdlprim::add_out);
       m.impl("aten::sub.out",&ptdlprim::sub_out);
+      m.impl("aten::exp.out",&ptdlprim::exp_out);
       m.impl("aten::log.out",&ptdlprim::log_out);
       m.impl("aten::addcmul.out",&ptdlprim::addcmul_out);
       m.impl("aten::sqrt.out",&ptdlprim::sqrt_out);
