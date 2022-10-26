@@ -15,7 +15,7 @@ public:
     OCLDevImpl() 
     {
     } 
-    virtual DeviceType type() const { return c10::DeviceType::OPENCL; }
+    virtual DeviceType type() const { return OpenCLDeviceType; }
     virtual Device exchangeDevice(Device d) const {
         Device prev = dt_;
         dt_ = d;
@@ -61,10 +61,10 @@ private:
 } ocl_impl_instance;
 
 
-thread_local Device OCLDevImpl::dt_ = Device(DeviceType::OPENCL,0);
-thread_local Stream OCLDevImpl::s_  = Stream(c10::Stream::UNSAFE,Device(DeviceType::OPENCL,0),0);
+thread_local Device OCLDevImpl::dt_ = Device(OpenCLDeviceType,0);
+thread_local Stream OCLDevImpl::s_  = Stream(c10::Stream::UNSAFE,Device(OpenCLDeviceType,0),0);
 // register backend
-c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(c10::DeviceType::OPENCL,&ocl_impl_instance);
+c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(OpenCLDeviceType,&ocl_impl_instance);
 } // namespace
 
 

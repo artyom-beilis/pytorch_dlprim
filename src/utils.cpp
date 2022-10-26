@@ -33,7 +33,7 @@ namespace ptdlprim {
 
     cl::Buffer buffer_from_tensor(torch::Tensor const &tt)
     {
-        TORCH_CHECK(tt.device().type() == c10::DeviceType::OPENCL,"OpenCL device is required for tensor");
+        TORCH_CHECK(tt.device().type() == OpenCLDeviceType,"OpenCL device is required for tensor");
         TORCH_CHECK(tt.numel() > 0,"Buffer is not valid for unallocated defvice");
         cl_mem p=static_cast<cl_mem>(tt.getIntrusivePtr()->storage().data());
         cl::Buffer buf(p,true);
@@ -42,7 +42,7 @@ namespace ptdlprim {
     
     dlprim::Tensor todp(torch::Tensor const &tt)
     {
-        TORCH_CHECK(tt.device().type() == c10::DeviceType::OPENCL,"OpenCL device is required for tensor");
+        TORCH_CHECK(tt.device().type() == OpenCLDeviceType,"OpenCL device is required for tensor");
         TORCH_CHECK(tt.is_contiguous(),"dlprim::Tensor must be contiguous");
         auto sizes = tt.sizes();
         auto offset = tt.storage_offset();

@@ -231,8 +231,9 @@ if __name__ == '__main__':
     p.add_argument('--eval',default=False,action='store_true')
     p.add_argument('--pretrained',type=bool,default=True)
     r = p.parse_args()
-    if r.device.find('opencl')==0:
+    if r.device.find('ocl')==0:
         torch.ops.load_library("build/libpt_ocl.so")
+        torch.utils.rename_privateuse1_backend('ocl')
     if r.all:
         ocl_blacklist = []
         for net in [ 
@@ -258,7 +259,7 @@ if __name__ == '__main__':
             dict(model='efficientnet_b4',eval=True),
             dict(model='regnet_y_400mf')
             ]:
-            if net['model'] in ocl_blacklist and r.device.find('opencl')==0:
+            if net['model'] in ocl_blacklist and r.device.find('ocl')==0:
                 print(net['model'],"is blacklisted")
                 continue
             new_r=copy.deepcopy(r)

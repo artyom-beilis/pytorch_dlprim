@@ -37,7 +37,7 @@ Calculations validated agaist CPU reference for both forward and backward popoga
 
 DLPrimitves itself is tested on following devies: 
 
-- Nvidia: gtx 1080, rtx 2060s, gtx 960
+- Nvidia: gtx 960
 - AMD: rx 6600 xt and in past rx 560
 - Intel: HD530
 
@@ -77,45 +77,54 @@ Train includes - io to/from device, zero gadients, forward, backward and optimiz
 
 # Build
 
+## Changes From previous
+
+Note the build procedure was significantly simplified - so READ again
+
+1. You don't need to build custom pytorch
+2. You should use ocl name for device rather than opencl (see details below)
+
 ## In the nutshell
 
-- Build customised version of pytorch (tiny change from main version)
-- Build dlprimitives
+- Setup virtual enviromnet
+- Install nightly version of pytorch using pip
 - Build dlprim\_backend
 - Load shared library in pytorch and start using it.
 
 ## Now in details
 
-1.  The most complex part is to build pytorch - make sure you can build and install your own version of pytorch.
+1.  The nightly version provides best support for out-of-tree backend. Setup virtual environment and setup 
+    nightly build of pytorch:: <https://pytorch.org/get-started/locally/>
 
-    Now take this git repo: <https://github.com/artyom-beilis/pytorch> it differs from the Original pytorch with a
-    single modification of mapping OpenCL devices to PrivateUse dispatch key... If it is Greek to you, ignore, just
-    build pytorch from this repo as an official one. Of course you can disable cuda by setting environment 
-    variable `USE_CUDA=0`
+    Don't use stable version since it does not have all features needed for out-of-tree backend
 
-    After you build pytorch and installed it into a virtual environment.
+    Install CPU variant since you don't need CUDA support for OpenCL backend to work.
 
-    **Don't try to skip this step. It wouldn't work.**
 
-2.  Build dlprimitives <https://github.com/artyom-beilis/dlprimitives> and install it, lets say to `/opt/dlprim`
+2.  Make sure you have OpenCL headers and library. It should be `cl2.hpp` - not the old one `cl.hpp`
 
-    Follow the instructions there: <https://github.com/artyom-beilis/dlprimitives/blob/master/docs/build.md>
-    
-    Note: make sure you use `cl2.hpp` and not older `cl.hpp` i.e. `USE_CL_HPP=OFF`
+3.  It is strongly recommended to have SQLite3 library and headers avalible as well, it would improve startup times by caching OpenCL kernels on disk.
 
-3.  Build the backend.
+4.  Build the backend.
+
+    Clone the git repository recusrively:
+
+        git clone --recurse-submodules https://github.com/artyom-beilis/pytorch_dlprim.git
+
+    Make sure you are in the virtual environment
 
         mkdir build
         cd build
-        cmake -DCMAKE_PREFIX_PATH=$VIRTUAL_ENV/lib/python3.6/site-packages/torch/share/cmake/Torch ..
+        cmake -DCMAKE_PREFIX_PATH=$VIRTUAL_ENV/lib/python3.8/site-packages/torch/share/cmake/Torch ..
         make
 
-    If cmake does not find dlprimitives provide `-DCMAKE_INCLUDE_PATH=path/to/dlprim/include` and `-DCMAKE_LIBRARY_PATH=path/to/dlprim/lib`
-    to make sure it finds `libdlprim_core.so` and its header files
+    Note: if you use python version that is different from 3.8 just fix the path above
 
     Test it runs:
 
-        python mnist.py --device opencl:0
+        python mnist.py --device ocl:0
+
+    Note from previous build procedure, now dlprimitives is submodule of the project. No need to build it separatly.
 
     
 ## How to Use
@@ -126,16 +135,18 @@ So if something fails. It is either not implemented or it is implemented incorre
 Note: pytorch backend is based on dlprimitives library that actually implements all the operators and
 it is relatievely well tested.
 
-
 If you still want to try:
 
 -   Before you begin in python code, load the library `libpt_ocl.so`:
 
         torch.ops.load_library("/path/to/libpt_ocl.so")
+        torch.utils.rename_privateuse1_backend('ocl')
 
-    It would enable you to use opencl devices. Keep in mind you may have several. Refer to `clinfo --list` to list
-    of the devices and their order. Now instead of calling `something.to('cuda')` you call `something.to('opencl:0')`
-    or another `opencl:1` etc.
+    1st line enables useing opencl devices as `privateuseone` device. The second line makes
+    the name much more easy to use giving `ocl` name to the OpenCL devices.
+    Keep in mind you may have several. Refer to `clinfo --list` to list
+    of the devices and their order. Now instead of calling `something.to('cuda')` you call `something.to('ocl:0')`
+    or another `ocl:1` etc.
 
 -   Try to do only essential tasks on GPU, handle preparations and outputs on CPU since many ops may not be implemented
     for example printing

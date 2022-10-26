@@ -22,7 +22,7 @@ using c10::DeviceType;
     {
         GUARD;
         c10::ScalarType st = dtype ? *dtype : c10::kFloat; 
-        c10::Device dev = device ? *device : Device(c10::DeviceType::OPENCL,0);
+        c10::Device dev = device ? *device : Device(OpenCLDeviceType,0);
         return ptdlprim::new_ocl_tensor(size,dev,st);
     }
 
@@ -86,7 +86,7 @@ using c10::DeviceType;
     {
         GUARD;
 
-        if(dst.device().type() == c10::DeviceType::CPU && self.device().type() == c10::DeviceType::OPENCL) {
+        if(dst.device().type() == c10::DeviceType::CPU && self.device().type() == OpenCLDeviceType) {
             Tensor c_src = make_contiguous_as_target_type(self,dst);
 
             dlprim::Tensor t(todp(c_src));
@@ -103,7 +103,7 @@ using c10::DeviceType;
                 dst.copy_(dst_c);
             }
         }
-        else if(self.device().type() == c10::DeviceType::CPU && dst.device().type() == c10::DeviceType::OPENCL) {
+        else if(self.device().type() == c10::DeviceType::CPU && dst.device().type() == OpenCLDeviceType) {
             Tensor c_src = make_contiguous_as_target_type(self,dst);
             auto ec = getExecutionContext(dst);
             if(dst.is_contiguous()) {
@@ -118,7 +118,7 @@ using c10::DeviceType;
                 dst.copy_(temp);
             }
         }
-        else if(self.device().type() == c10::DeviceType::OPENCL && dst.device().type() == c10::DeviceType::OPENCL) {
+        else if(self.device().type() == OpenCLDeviceType && dst.device().type() == OpenCLDeviceType) {
             if(self.is_contiguous() && dst.is_contiguous()) {
                 dlprim::core::pointwise_operation_broadcast({todp(self)},{todp(dst)},{},"y0=x0;",getExecutionContext(self.device()));
             }

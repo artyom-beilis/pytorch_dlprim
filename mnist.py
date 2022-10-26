@@ -113,8 +113,9 @@ def main():
     torch.manual_seed(args.seed)
 
     device = args.device
-    if device.find('opencl')==0:
+    if device.find('ocl')==0:
         torch.ops.load_library("build/libpt_ocl.so")
+        torch.utils.rename_privateuse1_backend('ocl')
 
     train_kwargs = {'batch_size': args.batch_size}
     test_kwargs = {'batch_size': args.test_batch_size}

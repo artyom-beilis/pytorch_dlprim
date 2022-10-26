@@ -12,6 +12,13 @@
 #include <list>
 
 namespace ptdlprim {
+
+#ifdef USE_PATCHED_TORCH
+    constexpr c10::DeviceType OpenCLDeviceType = c10::DeviceType::OPENCL;
+#else
+    constexpr c10::DeviceType OpenCLDeviceType = c10::DeviceType::PrivateUse1;
+#endif    
+
     struct CLMemAllocation {
 
         CLMemAllocation(CLMemAllocation const &) = delete;

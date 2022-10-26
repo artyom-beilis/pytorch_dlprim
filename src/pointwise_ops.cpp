@@ -392,12 +392,13 @@ using c10::DeviceType;
 
 
 
-    std::pair<dlprim::Shape,dlprim::Shape> squeeze_dim(dlprim::Shape s,IntArrayRef dim,bool keepdim)
+    std::pair<dlprim::Shape,dlprim::Shape> squeeze_dim(dlprim::Shape s,OptionalIntArrayRef odim,bool keepdim)
     {
         GUARD;
         std::vector<size_t> full,squeezed;
         std::vector<int> dims;
-        dims.assign(dim.begin(),dim.end());
+        if(odim)
+            dims.assign(odim->begin(),odim->end());
         if(dims.empty()) {
             for(int i=0;i<s.size();i++)
                 dims.push_back(i);
@@ -431,7 +432,7 @@ using c10::DeviceType;
         return std::make_pair(full_shape,squeezed_shape);
     }
 
-    Tensor & sum_mean_out(const Tensor & self, IntArrayRef dim, bool keepdim, c10::optional<ScalarType> /*dtype*/, Tensor & out,bool mean)
+    Tensor & sum_mean_out(const Tensor & self, OptionalIntArrayRef dim, bool keepdim, c10::optional<ScalarType> /*dtype*/, Tensor & out,bool mean)
     {
         GUARD;
         Tensor self_c = self.contiguous();
@@ -461,15 +462,15 @@ using c10::DeviceType;
     }
 
 
-    // {"schema": "aten::mean.out(Tensor self, int[1] dim, bool keepdim=False, *, ScalarType? dtype=None, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
-    Tensor & mean_out(const Tensor & self, IntArrayRef dim, bool keepdim, c10::optional<ScalarType> dtype, Tensor & out)
+    // {"schema": "aten::mean.out(Tensor self, int[1]? dim, bool keepdim=False, *, ScalarType? dtype=None, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & mean_out(const Tensor & self, OptionalIntArrayRef dim, bool keepdim, c10::optional<ScalarType> dtype, Tensor & out)
     {
         GUARD;
         return sum_mean_out(self,dim,keepdim,dtype,out,true);
     }
     
-    // {"schema": "aten::sum.IntList_out(Tensor self, int[1] dim, bool keepdim=False, *, ScalarType? dtype=None, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
-    Tensor & sum_out(const Tensor & self, IntArrayRef dim, bool keepdim, c10::optional<ScalarType> dtype, Tensor & out)
+    // {"schema": "aten::sum.IntList_out(Tensor self, int[1]? dim, bool keepdim=False, *, ScalarType? dtype=None, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & sum_out(const Tensor & self, OptionalIntArrayRef dim, bool keepdim, c10::optional<ScalarType> dtype, Tensor & out)
     {
         GUARD;
         return sum_mean_out(self,dim,keepdim,dtype,out,false);

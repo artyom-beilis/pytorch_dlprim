@@ -243,8 +243,9 @@ def test_all(device):
 
 if __name__ == '__main__': 
     p = argparse.ArgumentParser()
-    p.add_argument('--device',default='opencl:0')
+    p.add_argument('--device',default='ocl:0')
     r = p.parse_args()
-    if r.device.find('opencl')==0:
+    if r.device.find('ocl')==0:
         torch.ops.load_library("build/libpt_ocl.so")
+        torch.utils.rename_privateuse1_backend('ocl')
     test_all(r.device)
