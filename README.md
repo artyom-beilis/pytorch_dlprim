@@ -110,6 +110,8 @@ Note the build procedure was significantly simplified - so READ again
     Clone the git repository recusrively:
 
         git clone --recurse-submodules https://github.com/artyom-beilis/pytorch_dlprim.git
+        git checkout true_out_of_tree_support
+        git submodule update --recursive
 
     Make sure you are in the virtual environment
 
