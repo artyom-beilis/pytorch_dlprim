@@ -556,8 +556,8 @@ using c10::DeviceType;
         return out;
     }
 
-    // {"schema": "aten::_cat(Tensor[] tensors, int dim=0) -> Tensor", "dispatch": "True", "default": "False"}
-    Tensor _cat(TensorList tensors, int64_t dim)
+    template<typename TL>
+    Tensor &cat_internal(TL const &tensors, int64_t dim, Tensor &out,bool reuse)
     {
         GUARD;
         std::vector<dlprim::Tensor> list;
@@ -566,6 +566,8 @@ using c10::DeviceType;
             list_c.push_back(t.contiguous());
             list.push_back(todp(list_c.back()));
         }
+        TORCH_CHECK(!list_c.empty());
+        Tensor &ref_tensor=list_c.front();
         size_t total_shape = 0;
         dlprim::Shape ref;
         for(size_t i=0;i<list.size();i++) {
@@ -581,12 +583,19 @@ using c10::DeviceType;
             total_shape+=list[i].shape()[dim];
         }
         ref[dim]=total_shape;
-        Tensor out = new_tensor_as(ref,tensors[0]);
-        dlprim::Tensor Y=todp(out);
-        dlprim::ExecutionContext q(getExecutionContext(tensors[0]));
+        dlprim::Tensor Y;
+        if(reuse) {
+            Y = todp(out);
+            TORCH_CHECK(Y.shape() == ref);
+        }
+        else {
+            out = new_tensor_as(ref,ref_tensor);
+            Y = todp(out);
+        }
+        dlprim::ExecutionContext q(getExecutionContext(ref_tensor));
         dlprim::Context ctx(q);
         
-        dlprim::core::SliceCopy cp(ctx,todp(tensors[0].dtype()));
+        dlprim::core::SliceCopy cp(ctx,todp(ref_tensor.dtype()));
 
         for(size_t i=0,pos=0;i<list.size();i++) {
             size_t slice = list[i].shape()[dim];
@@ -596,7 +605,24 @@ using c10::DeviceType;
                                       0.0,q);
             pos += slice;
         }
-        sync_if_needed(tensors[0].device());
+        sync_if_needed(ref_tensor.device());
+        return out;
+    }
+
+    // {"schema": "aten::cat.out(Tensor[] tensors, int dim=0, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & cat_out(const ITensorListRef & tensors, int64_t dim, Tensor & out)
+    {
+        cat_internal(tensors,dim,out,true);
+    }
+    
+
+
+    // {"schema": "aten::_cat(Tensor[] tensors, int dim=0) -> Tensor", "dispatch": "True", "default": "False"}
+    Tensor _cat(TensorList tensors, int64_t dim)
+    {
+        GUARD;
+        Tensor out;
+        cat_internal(tensors,dim,out,false);
         return out;
     }
 
@@ -1050,6 +1076,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::abs.out",&ptdlprim::abs_out);
       m.impl("aten::sgn.out",&ptdlprim::sgn_out);
       m.impl("aten::_cat",&ptdlprim::_cat);
+      m.impl("aten::cat.out",&ptdlprim::cat_out);
       m.impl("aten::hardswish_",&ptdlprim::hardswish_);
       m.impl("aten::hardsigmoid.out",&ptdlprim::hardsigmoid_out);
       m.impl("aten::hardsigmoid_backward.grad_input",&ptdlprim::hardsigmoid_backward_out);

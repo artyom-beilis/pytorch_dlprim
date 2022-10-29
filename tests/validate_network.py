@@ -204,12 +204,13 @@ def main(args):
         m=models[args.model]()
         batch = make_mnist_batch()
     else:
+        weights = 'IMAGENET1K_V1' if args.pretrained else None
         if args.model == 'sn':
             m=_sn() 
         elif args.model.find('segmentation.')==0:
-            m=getattr(torchvision.models.segmentation,args.model[len('segmentation.'):])(pretrained = args.pretrained,aux_loss=False)
+            m=getattr(torchvision.models.segmentation,args.model[len('segmentation.'):])(aux_loss=False,weights=weights)
         else:
-            m = getattr(torchvision.models,args.model)(pretrained = args.pretrained)
+            m=getattr(torchvision.models,args.model)(weights=weights)
         batch  = make_batch(args.size)
 
     if args.eval:
