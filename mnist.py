@@ -115,7 +115,10 @@ def main():
     device = args.device
     if device.find('ocl')==0:
         torch.ops.load_library("build/libpt_ocl.so")
-        torch.utils.rename_privateuse1_backend('ocl')
+        try:
+            torch.utils.rename_privateuse1_backend('ocl')
+        except:
+            device = 'privateuseone'
 
     train_kwargs = {'batch_size': args.batch_size}
     test_kwargs = {'batch_size': args.test_batch_size}
