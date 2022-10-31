@@ -86,48 +86,90 @@ Note the build procedure was significantly simplified - so READ again
 
 ## In the nutshell
 
-- Setup virtual enviromnet
-- Install nightly version of pytorch using pip
+- Setup pip virtual enviromnet with pytorch 1.13 or nighyly version for CPU
 - Build dlprim\_backend
 - Load shared library in pytorch and start using it.
 
 ## Now in details
 
-1.  The nightly version provides best support for out-of-tree backend. Setup virtual environment and setup 
+1.  Setup pip virtual environment and install CPU version of pytorch - either 1.13 stable or
     nightly build of pytorch:: <https://pytorch.org/get-started/locally/>
 
-    Don't use stable version since it does not have all features needed for out-of-tree backend
-
     Install CPU variant since you don't need CUDA support for OpenCL backend to work.
-
 
 2.  Make sure you have OpenCL headers and library. It should be `cl2.hpp` - not the old one `cl.hpp`
 
 3.  It is strongly recommended to have SQLite3 library and headers avalible as well, it would improve startup times by caching OpenCL kernels on disk.
 
-4.  Build the backend.
-
-    Clone the git repository recusrively:
+4. Clone The repository
 
         git clone --recurse-submodules https://github.com/artyom-beilis/pytorch_dlprim.git
         git checkout true_out_of_tree_support
         git submodule update --recursive
 
-    Make sure you are in the virtual environment
 
-        mkdir build
-        cd build
-        cmake -DCMAKE_PREFIX_PATH=$VIRTUAL_ENV/lib/python3.8/site-packages/torch/share/cmake/Torch ..
-        make
+4.  Build the backend.
 
-    Note: if you use python version that is different from 3.8 just fix the path above
+## Building the on Linux
 
-    Test it runs:
+Make sure you are in the virtual environment
 
-        python mnist.py --device ocl:0
+	mkdir build
+	cd build
+	cmake -DCMAKE_PREFIX_PATH=$VIRTUAL_ENV/lib/python3.8/site-packages/torch/share/cmake/Torch ..
+	make
 
-    Note from previous build procedure, now dlprimitives is submodule of the project. No need to build it separatly.
+Note: if you use python version that is different from 3.8 just fix the path above
 
+Test it runs:
+
+	python mnist.py --device ocl:0
+
+Note from previous build procedure, now dlprimitives is submodule of the project. No need to build it separatly.
+
+## Building on Windows
+
+Note: Windows support is even more experimental than Linux support. It was tested using pytorch 1.13, MSVC 2022 using ninja build tool. 
+
+You will nead OpenCL headers and `x86_64` import library. It is also strongly recommended to get sqlite3
+library. You can download 64 bit def and dll files and headers from official web site. You can convert def file
+to import library by running `lib /def:sqlite3.def /out:sqlite3.lib /machine:x64`
+
+Put all the dependencies in a layout you can use with ease, something like:
+
+    c:\deps
+	c:\deps\include\
+	c:\deps\include\CL\cl2.hpp
+	c:\deps\include\sqlite3.h
+	...
+	c:\deps\lib\
+	c:\deps\lib\OpenCL.lib
+	c:\deps\lib\sqlite3.lib
+	c:\deps\lib\sqlite3.dll
+
+Make sure you put there 64 release versions only.
+
+Setup virtual pip enviromnet with pytorch. Lets assume you put it into `c:\venv\torch`
+
+Open "x64 Native Tools Command Prompt for VS 2022" and activate virtual envornment by running `c:\venv\torch\Scripts\activate` 
+Change current directory to location of the `pytorch_dlprim` project
+
+And run:
+
+    mkdir build
+	cd build
+	cmake -DCMAKE_PREFIX_PATH=%VIRTUAL_ENV%\Lib\site-packages\torch\share\cmake\Torch -DCMAKE_BUILD_TYPE=RelWithDebInfo   -DCMAKE_C_COMPILER="cl.exe" -DCMAKE_CXX_COMPILER="cl.exe" -G Ninja -DCMAKE_INCLUDE_PATH=c:\deps\include\include -DCMAKE_LIBRARY_PATH=c:\deps\lib  ..
+	ninja
+	
+Make sure that sqlite3 dll is in the path by calling
+
+    set PATH=%PATH%;c:\deps\lib	
+	
+Once build is complete go back to previous directory and run mnist example
+
+    cd ..
+	python mnist.py --device=ocl:0
+	
     
 ## How to Use
     
@@ -139,20 +181,24 @@ it is relatievely well tested.
 
 If you still want to try:
 
--   Before you begin in python code, load the library `libpt_ocl.so`:
+-   Before you begin in python code, load the library `libpt_ocl.so` :
 
         torch.ops.load_library("/path/to/libpt_ocl.so")
+	
+	Or on Windows
+	
+	    torch.ops.load_library("/path/to/pt_ocl.dll")
+		
+	It enables useing opencl devices as `privateuseone` device.
+		
+	If you use nighly version `>= 1.14` you can rename `privateuseone` device to `ocl`
+	
         torch.utils.rename_privateuse1_backend('ocl')
 
-    1st line enables useing opencl devices as `privateuseone` device. The second line makes
-    the name much more easy to use giving `ocl` name to the OpenCL devices.
     Keep in mind you may have several. Refer to `clinfo --list` to list
-    of the devices and their order. Now instead of calling `something.to('cuda')` you call `something.to('ocl:0')`
-    or another `ocl:1` etc.
+    of the devices and their order. Now instead of calling `something.to('cuda')` you call `something.to('ocl:0')` or 
+	`something.to('privateuseone:0')` or another `ocl:1` etc.
 
 -   Try to do only essential tasks on GPU, handle preparations and outputs on CPU since many ops may not be implemented
     for example printing
-
-
-
 
