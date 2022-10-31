@@ -613,6 +613,7 @@ using c10::DeviceType;
     Tensor & cat_out(const ITensorListRef & tensors, int64_t dim, Tensor & out)
     {
         cat_internal(tensors,dim,out,true);
+		return out;
     }
     
 

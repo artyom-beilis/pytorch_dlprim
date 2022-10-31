@@ -7,6 +7,7 @@ import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.optim.lr_scheduler import StepLR
 import time
+import os
 
 class Net(nn.Module):
     use_bn = True
@@ -114,11 +115,14 @@ def main():
 
     device = args.device
     if device.find('ocl')==0:
-        torch.ops.load_library("build/libpt_ocl.so")
+        if os.name == 'nt':
+            torch.ops.load_library(r"build\pt_ocl.dll")
+        else:
+            torch.ops.load_library("build/libpt_ocl.so")
         try:
             torch.utils.rename_privateuse1_backend('ocl')
         except:
-            device = 'privateuseone'
+            device = device.replace('ocl','privateuseone')
 
     train_kwargs = {'batch_size': args.batch_size}
     test_kwargs = {'batch_size': args.test_batch_size}
@@ -139,6 +143,8 @@ def main():
     train_loader = torch.utils.data.DataLoader(dataset1,**train_kwargs)
     test_loader = torch.utils.data.DataLoader(dataset2, **test_kwargs)
 
+    print("Using device:",device)
+	
     model = Net().to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 

@@ -55,5 +55,9 @@ namespace ptdlprim {
         char const *name_;
     };
     
-    #define GUARD ExecGuard debug_guard(__PRETTY_FUNCTION__);
+	#ifdef _MSC_VER 
+	#  define GUARD ExecGuard debug_guard(__FUNCSIG__ );
+	#else
+    #  define GUARD ExecGuard debug_guard(__PRETTY_FUNCTION__);
+	#endif
 } // namespace
