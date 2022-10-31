@@ -104,11 +104,8 @@ Note the build procedure was significantly simplified - so READ again
 4. Clone The repository
 
         git clone --recurse-submodules https://github.com/artyom-beilis/pytorch_dlprim.git
-        git checkout true_out_of_tree_support
-        git submodule update --recursive
 
-
-4.  Build the backend.
+5.  Build the backend.
 
 ## Building the on Linux
 
