@@ -62,10 +62,8 @@ namespace ptdlprim {
         size_t n = 1;
         for(auto const &v:size)
             n*=v;
-        if(n == 0)
-            return torch::Tensor();
         dlprim::DataType dt = todp(type);
-        size_t mem = n*dlprim::size_of_data_type(dt);
+        size_t mem = std::max(size_t(1),n)*dlprim::size_of_data_type(dt);
         c10::Storage storage(c10::Storage::use_byte_size_t(),mem,CLContextManager::allocate(dev,mem));
 
         c10::DispatchKeySet ks = c10::DispatchKeySet{c10::DispatchKey::OpenCL, c10::DispatchKey::AutogradOpenCL};

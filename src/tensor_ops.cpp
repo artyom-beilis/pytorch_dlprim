@@ -182,32 +182,120 @@ using c10::DeviceType;
         GUARD;
         TORCH_CHECK(self.numel()==1);
         dlprim::Tensor x=todp(self);
-        x.to_host(getExecutionContext(self));
+        union {
+            float f;
+            double d;
+            int8_t i8;
+            uint8_t u8;
+            int16_t i16;
+            uint16_t u16;
+            int32_t i32;
+            uint32_t u32;
+            int64_t i64;
+            uint64_t u64;
+            char data[16];
+        } data;
+        x.to_host(getExecutionContext(self),data.data);
         switch(x.dtype()) {
+        case dlprim::float_data:    return data.f;
+        case dlprim::double_data:   return data.d;
+        case dlprim::int8_data:     return data.i8;
+        case dlprim::uint8_data:    return data.u8;
+        case dlprim::int16_data:    return data.i16;
+        case dlprim::uint16_data:   return data.u16;
+        case dlprim::int32_data:    return (int64_t)data.i32;
+        case dlprim::uint32_data:   return (int64_t)data.u32;
+        case dlprim::int64_data:    return (int64_t)data.i64;
+        case dlprim::uint64_data:   return (int64_t)data.u64;
+        default:
+            TORCH_CHECK(!"Not implemented dtype","Not implemented data type");
+        }
+    }
+
+    template<typename E,typename M>
+    size_t select_impl_by(E *p,M *m,size_t n)
+    {
+        size_t N = 0;
+        for(size_t i=0;i<n;i++) {
+            if(m[i]) {
+                p[N] = p[i];
+                N++;
+            }
+        }
+        return N;
+    }
+
+    template<typename T>
+    size_t select_impl(T *mask,dlprim::Tensor &/*m*/,dlprim::Tensor &v)
+    {
+        void *p=v.host_data();
+        switch(dlprim::size_of_data_type(v.dtype())) {
+        case 1: return select_impl_by(static_cast<int8_t  *>(p),mask,v.shape().total_size());
+        case 2: return select_impl_by(static_cast<int16_t *>(p),mask,v.shape().total_size());
+        case 4: return select_impl_by(static_cast<int32_t *>(p),mask,v.shape().total_size());
+        case 8: return select_impl_by(static_cast<int64_t *>(p),mask,v.shape().total_size());
+        default:
+            TORCH_CHECK(!"Invalid sizeof");
+            return 0;
+        }
+    }
+    
+    // {"schema": "aten::masked_select(Tensor self, Tensor mask) -> Tensor", "dispatch": "True", "default": "False"}
+    Tensor masked_select(const Tensor & self, const Tensor & mask)
+    {
+        GUARD;
+        Tensor self_c = self.contiguous();
+        Tensor mask_c = mask.contiguous();
+        dlprim::Tensor x = todp(self_c);
+        dlprim::Tensor m = todp(mask_c);
+        TORCH_CHECK(x.shape() == m.shape(),"Broadasting is not implemented in masked_select yet");
+        auto ec = getExecutionContext(self);
+        x.to_host(ec);
+        m.to_host(ec);
+        size_t N = 0;
+        switch(m.dtype()) {
         case dlprim::float_data:
-            return *x.data<float>();
+            N = select_impl(m.data<float>(),m,x);
+            break;
         case dlprim::double_data:
-            return *x.data<double>();
+            N = select_impl(m.data<double>(),m,x);
+            break;
         case dlprim::int8_data:
-            return *x.data<int8_t>();
+            N = select_impl(m.data<int8_t>(),m,x);
+            break;
         case dlprim::uint8_data:
-            return *x.data<uint8_t>();
+            N = select_impl(m.data<uint8_t>(),m,x);
+            break;
         case dlprim::int16_data:
-            return *x.data<int16_t>();
+            N = select_impl(m.data<int16_t>(),m,x);
+            break;
         case dlprim::uint16_data:
-            return *x.data<uint16_t>();
+            N = select_impl(m.data<uint16_t>(),m,x);
+            break;
         case dlprim::int32_data:
-            return (int64_t)*x.data<int32_t>();
+            N = select_impl(m.data<int32_t>(),m,x);
+            break;
         case dlprim::uint32_data:
-            return (int64_t)*x.data<uint32_t>();
+            N = select_impl(m.data<uint32_t>(),m,x);
+            break;
         case dlprim::int64_data:
-            return (int64_t)*x.data<int64_t>();
+            N = select_impl(m.data<int64_t>(),m,x);
+            break;
         case dlprim::uint64_data:
-            return (int64_t)*x.data<uint64_t>();
+            N = select_impl(m.data<uint64_t>(),m,x);
+            break;
         default:
             TORCH_CHECK(!"Not implemented dtype","Not implemented");
         }
+        Tensor res=new_tensor_as(dlprim::Shape(N),self);
+        if(N > 0) {
+            dlprim::Tensor y=todp(res);
+            y.to_device(getExecutionContext(self),x.host_data());
+        }
+        sync_if_needed(self.device());
+        return res;
     }
+
 
 
 } // namespace dtype
@@ -222,4 +310,5 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::zero_",&ptdlprim::zero_);
       m.impl("aten::as_strided",&ptdlprim::as_strided);
       m.impl("aten::_local_scalar_dense",&ptdlprim::_local_scalar_dense);
+      m.impl("aten::masked_select",&ptdlprim::masked_select);
 }

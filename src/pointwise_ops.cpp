@@ -898,7 +898,7 @@ using c10::DeviceType;
         dlprim::Tensor X = todp(self_cont);
         Tensor result = new_tensor_as(dlprim::Shape(),self);
         dlprim::Tensor Y = todp(result);
-        TORCH_CHECK(X.dtype() == dlprim::float_data,"FIXME only float supported");
+        std::string y0 = dlprim::data_type_to_opencl_numeric_limit(X.dtype(),(is_min ? dlprim::dt_max_val : dlprim::dt_min_val));
         dlprim::ExecutionContext q=getExecutionContext(self);
         dlprim::Context ctx(q);
         auto op = dlprim::core::PointwiseOperationBroadcastReduce::create(
@@ -906,7 +906,7 @@ using c10::DeviceType;
                     {X.specs()},{Y.specs()},
                     0,X.dtype(),
                     "y0=x0;",
-                    std::string("reduce_y0 = ") + (is_min ? " FLT_MAX;" : " -FLT_MAX;"),
+                    std::string("reduce_y0 = ") + y0 + ";",
                     std::string("reduce_y0 = y0 ") + (is_min ? "<" : ">") +  " reduce_y0 ? y0 : reduce_y0;"
                     );
         WSGuard ws_guard(op->workspace(),self.device());
@@ -971,6 +971,24 @@ using c10::DeviceType;
 
     }
 
+    // {"schema": "aten::ne.Tensor_out(Tensor self, Tensor other, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & ne_out_tensor(const Tensor & self, const Tensor & other, Tensor & out)
+    {
+        GUARD;
+        Tensor self_c = self.contiguous();
+        Tensor other_c = other.contiguous();
+        dlprim::Tensor x0(todp(self_c));
+        dlprim::Tensor x1(todp(other_c));
+        dlprim::Tensor y(todp(out));
+        dlprim::core::pointwise_operation_broadcast({x0,x1},{y},{},
+                    "y0 = x0 != x1;", 
+                    getExecutionContext(self_c));
+
+        sync_if_needed(self.device());
+        return out;
+
+    }
+
     // {"schema": "aten::eq.Tensor_out(Tensor self, Tensor other, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & eq_out(const Tensor & self, const Tensor & other, Tensor & out)
     {
@@ -1027,6 +1045,19 @@ using c10::DeviceType;
             dlprim::core::pointwise_operation({X},{Y},{max->to<double>()},"y0 = min(w0,x0);",q);
         else
             dlprim::core::pointwise_operation({X},{Y},{},"y0 = x0;",q);
+        sync_if_needed(self.device());
+        return out;
+    }
+    
+    // {"schema": "aten::ceil.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & ceil_out(const Tensor & self, Tensor & out)
+    {
+        GUARD;
+        Tensor self_c = self.contiguous();
+        dlprim::Tensor Y = todp(out);
+        dlprim::Tensor X = todp(self);
+        auto q = getExecutionContext(self);
+        dlprim::core::pointwise_operation({X},{Y},{},"y0 = ceil(x0);",q);
         sync_if_needed(self.device());
         return out;
     }
@@ -1096,6 +1127,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::hardswish_backward",&ptdlprim::hardswish_backward);
       m.impl("aten::argmax.out",&ptdlprim::argmax_out);
       m.impl("aten::ne.Scalar_out",&ptdlprim::ne_out);
+      m.impl("aten::ne.Tensor_out",&ptdlprim::ne_out_tensor);
       m.impl("aten::eq.Tensor_out",&ptdlprim::eq_out);
       m.impl("aten::le.Scalar_out",&ptdlprim::le_out);
       m.impl("aten::ge.Scalar_out",&ptdlprim::ge_out);
@@ -1108,6 +1140,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::neg.out",&ptdlprim::neg_out);
       m.impl("aten::reciprocal.out",&ptdlprim::reciprocal_out);
       m.impl("aten::dot",&ptdlprim::dot);
+      m.impl("aten::ceil.out",&ptdlprim::ceil_out);
       
 }
 
