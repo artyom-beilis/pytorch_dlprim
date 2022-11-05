@@ -246,21 +246,30 @@ using c10::DeviceType;
             Tensor cinput = input.contiguous();
             dlprim::Tensor X = todp(cinput);
             dlprim::Tensor W = todp(weight);
-            dlprim::Shape os(X.shape()[0],W.shape()[0]);
+            dlprim::Shape os = X.shape();
+            
+            int fi = W.shape()[1];
+            int fo = W.shape()[0];
+            int batch = X.shape().total_size()/fi;
+            
+            os[os.size()-1] = fo;
+
             Tensor result = new_tensor_as(os,input);
             dlprim::Tensor Y = todp(result);
             dlprim::ExecutionContext q = getExecutionContext(input);
             dlprim::Context dlprim_ctx(q);
             dlprim::core::IPSettings cfg;
-            cfg.inputs = X.shape().size_no_batch();
-            cfg.outputs = W.shape()[0];
-            cfg.optimal_batch_size = X.shape()[0];
+            cfg.inputs = fi;
+            cfg.outputs = fo;
+            cfg.optimal_batch_size = batch;
             cfg.dtype = todp(input.dtype());
             bool has_bias = bias && bias->numel() > 0;
             auto ip = dlprim::core::IPForward::create(dlprim_ctx,cfg,has_bias);
             dlprim::Tensor B;
             if(has_bias)
                 B=todp(*bias);
+            X.reshape(dlprim::Shape(batch,fi));
+            Y.reshape(dlprim::Shape(batch,fo));
             ip->enqueue(X,W,(has_bias ? &B : nullptr),Y,q);
             ctx->save_for_backward({cinput,weight});
             ctx->saved_data["has_bias"]=has_bias;
@@ -272,6 +281,11 @@ using c10::DeviceType;
             GUARD;
             dlprim::Tensor X = todp(ctx->get_saved_variables()[0]);
             dlprim::Tensor W = todp(ctx->get_saved_variables()[1]);
+
+            int fi = W.shape()[1];
+            int fo = W.shape()[0];
+            int batch = X.shape().total_size()/fi;
+
             Tensor dy_tensor = grad_outputs[0].contiguous();
             dlprim::Tensor dY = todp(dy_tensor);
             auto grad_output = grad_outputs[0];
@@ -283,18 +297,27 @@ using c10::DeviceType;
             dlprim::Tensor dW = todp(dW_tensor);
 
             dlprim::core::IPSettings cfg;
-            cfg.inputs = X.shape().size_no_batch();
-            cfg.outputs = W.shape()[0];
-            cfg.optimal_batch_size = X.shape()[0];
+            cfg.inputs = fi;
+            cfg.outputs = fo;
+            cfg.optimal_batch_size = batch;
             cfg.dtype = todp(dx_tensor.dtype());
 
             auto q = getExecutionContext(dy_tensor);
             dlprim::Context dlprim_ctx(q);
 
+            dlprim::Shape X_shape(batch,fi);
+            dlprim::Shape Y_shape(batch,fo);
+
+            X.reshape(X_shape);
+            dX.reshape(X_shape);
+            dY.reshape(Y_shape);
+
             auto bwd_data = dlprim::core::IPBackwardData::create(dlprim_ctx,cfg);
             bwd_data->enqueue(dX,W,dY,0,q);
+
             auto bwd_filter = dlprim::core::IPBackwardFilter::create(dlprim_ctx,cfg);
             bwd_filter->enqueue(X,dW,dY,0,q);
+
             bool has_bias = ctx->saved_data["has_bias"].toBool();
             torch::Tensor dB_tensor;
             if(has_bias) {

@@ -230,6 +230,11 @@ def test_all(device):
     print("Clamp 3")
     test_fwd([([4,3,5],-1)],lambda x:torch.clamp(x,max=0.3),device)
 
+    print("Linear 2d")
+    test_fwd_bwd_op([([8,10],-1)],torch.nn.Linear(10,5),device)
+    print("Linear 3d")
+    test_fwd_bwd_op([([2,6,10],-1)],torch.nn.Linear(10,5),device)
+
     print("Conv")
     test_fwd_bwd_op([([2,6,10,20],-1)],torch.nn.Conv2d(6,8,[3,5],stride=[1,2],padding=[1,2],dilation=1,groups=2),device)
     print("ConvTr")
