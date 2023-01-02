@@ -296,7 +296,12 @@ using c10::DeviceType;
         return res;
     }
 
-
+    void fallback(const c10::OperatorHandle& op, torch::jit::Stack* stack)
+    {
+      TORCH_CHECK(false, "The operator '", op.schema().operator_name(), "' is not currently ",
+                  "supported on the ocl backend. Please open an issue at for requesting support "
+                  "https://github.com/artyom-beilis/pytorch_dlprim/issues");
+    }
 
 } // namespace dtype
 
@@ -311,4 +316,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::as_strided",&ptdlprim::as_strided);
       m.impl("aten::_local_scalar_dense",&ptdlprim::_local_scalar_dense);
       m.impl("aten::masked_select",&ptdlprim::masked_select);
+}
+TORCH_LIBRARY_IMPL(_, PrivateUse1, m) {
+      m.fallback(torch::CppFunction::makeFromBoxedFunction<&ptdlprim::fallback>());
 }
