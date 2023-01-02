@@ -1,5 +1,6 @@
 #include "CLTensor.h"
 #include "utils.h"
+#include <ATen/native/CPUFallback.h>
 
 #include <dlprim/core/util.hpp>
 #include <dlprim/core/pointwise.hpp>
@@ -298,9 +299,10 @@ using c10::DeviceType;
 
     void fallback(const c10::OperatorHandle& op, torch::jit::Stack* stack)
     {
-      TORCH_CHECK(false, "The operator '", op.schema().operator_name(), "' is not currently ",
-                  "supported on the ocl backend. Please open an issue at for requesting support "
-                  "https://github.com/artyom-beilis/pytorch_dlprim/issues");
+      TORCH_WARN("The operator '", op.schema().operator_name(), "' is not currently ",
+                 "supported on the ocl backend. Please open an issue at for requesting support "
+                 "https://github.com/artyom-beilis/pytorch_dlprim/issues");
+      native::cpu_fallback(op, stack);
     }
 
 } // namespace dtype
