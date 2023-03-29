@@ -989,8 +989,24 @@ using c10::DeviceType;
 
     }
 
+    // {"schema": "aten::eq.Scalar_out(Tensor self, Scalar other, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & eq_out(const Tensor & self, const Scalar & other, Tensor & out)
+    {
+        GUARD;
+        Tensor self_c = self.contiguous();
+        dlprim::Tensor x(todp(self_c));
+        dlprim::Tensor y(todp(out));
+        dlprim::core::pointwise_operation_broadcast({x},{y},{other.to<double>()},{x.dtype()},
+                    "y0 = x0 == w0;",
+                    getExecutionContext(self));
+
+        sync_if_needed(self.device());
+        return out;
+
+    }
+
     // {"schema": "aten::eq.Tensor_out(Tensor self, Tensor other, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
-    Tensor & eq_out(const Tensor & self, const Tensor & other, Tensor & out)
+    Tensor & eq_out_tensor(const Tensor & self, const Tensor & other, Tensor & out)
     {
         GUARD;
         Tensor self_c = self.contiguous();
@@ -1128,7 +1144,8 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::argmax.out",&ptdlprim::argmax_out);
       m.impl("aten::ne.Scalar_out",&ptdlprim::ne_out);
       m.impl("aten::ne.Tensor_out",&ptdlprim::ne_out_tensor);
-      m.impl("aten::eq.Tensor_out",&ptdlprim::eq_out);
+      m.impl("aten::eq.Scalar_out",&ptdlprim::eq_out);
+      m.impl("aten::eq.Tensor_out",&ptdlprim::eq_out_tensor);
       m.impl("aten::le.Scalar_out",&ptdlprim::le_out);
       m.impl("aten::ge.Scalar_out",&ptdlprim::ge_out);
       m.impl("aten::lt.Scalar_out",&ptdlprim::lt_out);
