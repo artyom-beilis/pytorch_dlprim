@@ -83,7 +83,7 @@ using c10::DeviceType;
         return c_src;
     }
 
-    Tensor _copy_from(const Tensor & self, const Tensor & dst, bool /*non_blocking*/)
+    Tensor _copy_from(const Tensor & self, const Tensor & dst, bool non_blocking)
     {
         GUARD;
 
@@ -140,12 +140,21 @@ using c10::DeviceType;
                                                  todp(dst.dtype()),
                                                  getExecutionContext(self.device()));
             }
-            sync_if_needed(self.device());
+            if(non_blocking)
+                sync_if_needed(self.device());
+            else
+                getExecutionContext(self.device()).queue().flush();
         }
         else {
             throw std::runtime_error("OpenCL supports copy to CPU backend only");
         }
         return self;
+    }
+
+    // {"schema": "aten::_copy_from_and_resize(Tensor self, Tensor dst) -> Tensor", "dispatch": "True", "default": "False"}
+    Tensor _copy_from_and_resize(const Tensor & self, const Tensor & dst)
+    {
+        return ptdlprim::_copy_from(self,dst,false);
     }
 
     Tensor &fill_(Tensor &self, const c10::Scalar &value)
@@ -313,6 +322,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::_reshape_alias",&ptdlprim::_reshape_alias);
       m.impl("aten::view",&ptdlprim::view);
       m.impl("aten::_copy_from",&ptdlprim::_copy_from);
+      m.impl("aten::_copy_from_and_resize",&ptdlprim::_copy_from_and_resize);
       m.impl("aten::fill_.Scalar",&ptdlprim::fill_);
       m.impl("aten::zero_",&ptdlprim::zero_);
       m.impl("aten::as_strided",&ptdlprim::as_strided);
