@@ -12,7 +12,7 @@ if False:
     print('dy=',dy)
     print('dx=',x.grad)
 
-dev='opencl:0'
+dev='privateuseone:0'
 
 if False:
     t1=torch.ones((20,10),requires_grad=True,device=dev)
