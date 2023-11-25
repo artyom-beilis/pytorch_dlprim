@@ -40,12 +40,17 @@ def test_fwd(inputs,call,device):
         raise Exception("Diff too big")
     print("Ok")
 
-def test_fwd_bwd_op(inputs,call,device,randgen=torch.randn):
+def test_fwd_bwd_op(inputs,call,device,randgen=torch.randn,paramgen = None):
     xs_cpu = []
     xs_dev = []
     p_names = set()
     with torch.no_grad():
         p_names = set(call.state_dict())
+        if paramgen is not None:
+            for p in call.parameters():
+                size = list(p.shape)
+                tmp = paramgen(size,dtype=p.dtype)
+                p.copy_(tmp)
 
     with torch.no_grad():
         for s,limit in inputs:
@@ -244,6 +249,11 @@ def test_all(device):
     print("ConvTr")
     test_fwd_bwd_op([([2,6,10,20],-1)],torch.nn.ConvTranspose2d(6,8,[3,5],stride=[1,2],padding=[1,2],dilation=1,groups=1,bias=False),device)
 
+    print("LayerNorm")
+    test_fwd_bwd_op([([2,3,4,30],-1)],torch.nn.LayerNorm((4,30),elementwise_affine=False),device)
+
+    print("LayerNorm Aff")
+    test_fwd_bwd_op([([2,3,4,30],-1)],torch.nn.LayerNorm((4,30),elementwise_affine=True),device,paramgen = torch.randn)
 
 
 if __name__ == '__main__': 

@@ -161,9 +161,197 @@ using c10::DeviceType;
         sync_if_needed(input.device());
         return std::tuple<torch::Tensor,torch::Tensor,torch::Tensor>(x_diff,gamma_diff,beta_diff);
     }
+
+    // {"schema": "aten::native_layer_norm(Tensor input, SymInt[] normalized_shape, Tensor? weight, Tensor? bias, float eps) -> (Tensor, Tensor, Tensor)", "dispatch": "True", "default": "True"}
+    std::tuple<Tensor,Tensor,Tensor> native_layer_norm(const Tensor & input, c10::SymIntArrayRef normalized_shape, const c10::optional<Tensor> & weight, const c10::optional<Tensor> & bias, double eps)
+    {
+        int N = 1;
+        for(auto v:normalized_shape) {
+            N*=v.expect_int();
+        }
+
+        bool weight_present = weight && weight->numel()>0; 
+        bool bias_present = bias && bias->numel()>0; 
+
+        dlprim::ExecutionContext q=getExecutionContext(input);
+        dlprim::Context ctx(q);
+
+        Tensor input_c = input.contiguous();
+        dlprim::Tensor X = todp(input_c);
+        TORCH_CHECK(X.shape().total_size() % N == 0,"Invalid input shape");
+        int B = X.shape().total_size() / N;
+        auto bn_shape = dlprim::Shape(1,B,N);
+        auto src_shape = X.shape();
+        Tensor result = new_tensor_as(X.shape(),input);
+        dlprim::Tensor Y = todp(result);
+        X.reshape(bn_shape);
+        Y.reshape(bn_shape);
+
+
+        Tensor calc_mean_pt,calc_var_pt,calc_rstd_pt;
+        dlprim::Tensor calc_mean,calc_var,calc_rstd;
+
+        calc_mean_pt = new_tensor_as(dlprim::Shape(B),input);
+        calc_mean = todp(calc_mean_pt);
+        calc_var_pt  = new_tensor_as(dlprim::Shape(B),input);
+        calc_var = todp(calc_var_pt);
+        calc_rstd_pt  = new_tensor_as(dlprim::Shape(B),input);
+        calc_rstd = todp(calc_rstd_pt);
+
+        auto bn = dlprim::core::BatchNormFwdBwd::create(ctx,X.shape(),X.dtype());
+        size_t ws_size = bn->workspace();
+        
+        DataPtr tmp;
+        dlprim::Tensor ws = make_workspace(tmp,ws_size,input.device());
+
+        dlprim::Tensor fwd_mean,fwd_var;
+
+        bn->enqueue_calculate_batch_stats(X,calc_mean,calc_var,ws,q);
+        bn->enqueue_forward_get_rstd(X,Y,calc_mean,calc_var,eps,calc_rstd,ws,q);
+
+        Y.reshape(src_shape);
+        if(weight_present && bias_present) {
+            dlprim::Tensor w = todp(*weight);
+            dlprim::Tensor b = todp(*bias);
+            dlprim::core::pointwise_operation_broadcast({Y,w,b},{Y},{},
+                                      "y0 = x0 * x1 + x2;",
+                                      q);
+
+        }
+        else if(weight_present) {
+            dlprim::Tensor w = todp(*weight);
+            dlprim::core::pointwise_operation_broadcast({Y,w},{Y},{},
+                                      "y0 = x0 * x1;",
+                                      q);
+        }
+        else if(bias_present) {
+            dlprim::Tensor b = todp(*bias);
+            dlprim::core::pointwise_operation_broadcast({Y,b},{Y},{},
+                                      "y0 = x0 + x1;",
+                                      q);
+        }
+        return std::tuple<Tensor,Tensor,Tensor>(result,calc_mean_pt,calc_rstd_pt);
+    }
+    // {"schema": "aten::native_layer_norm_backward(Tensor grad_out, Tensor input, SymInt[] normalized_shape, Tensor mean, Tensor rstd, Tensor? weight, Tensor? bias, bool[3] output_mask) -> (Tensor, Tensor, Tensor)", "dispatch": "True", "default": "False"}
+    std::tuple<Tensor,Tensor,Tensor> native_layer_norm_backward(
+            const Tensor & grad_out,
+            const Tensor & input,
+            c10::SymIntArrayRef normalized_shape,
+            const Tensor & save_mean,
+            const Tensor & save_rstd,
+            const c10::optional<Tensor> & weight,
+            const c10::optional<Tensor> & bias,
+            ::std::array<bool,3> output_mask)
+    {
+        GUARD;
+        int N = 1;
+        std::vector<int> ns;
+        for(auto v:normalized_shape) {
+            ns.push_back(v.expect_int());
+            N*=v.expect_int();
+        }
+        dlprim::Shape norm_shape = dlprim::Shape::from_range(ns.begin(),ns.end());
+
+
+        bool weight_present = weight && weight->numel()>0; 
+        bool bias_present = bias && bias->numel() > 0;
+
+        dlprim::ExecutionContext q=getExecutionContext(input);
+        dlprim::Context ctx(q);
+        dlprim::Tensor dY = todp(grad_out);
+        dlprim::Tensor X = todp(input);
+        auto src_shape = X.shape();
+
+        int B = X.shape().total_size() / N;
+        auto bn_shape = dlprim::Shape(1,B,N);
+        X.reshape(bn_shape);
+        dY.reshape(bn_shape);
+        
+        dlprim::Tensor W;
+        
+        if(weight_present) {
+            W = todp(*weight);
+            W.reshape(dlprim::Shape(N));
+        }
+
+        Tensor x_diff,gamma_diff,beta_diff;
+
+        bool bwd_data=output_mask[0];
+        bool bwd_gamma=output_mask[1] && weight_present;
+        bool bwd_beta=output_mask[2] && bias_present;
+
+        
+        dlprim::Tensor dX,dG,dB;
+        if(bwd_gamma)  {
+            gamma_diff = new_tensor_as(norm_shape,input);
+            dG = todp(gamma_diff);
+            dG.reshape(dlprim::Shape(N));
+            auto mean = todp(save_mean);
+            auto rstd = todp(save_rstd);
+            mean.reshape(dlprim::Shape(1,B,1));
+            rstd.reshape(dlprim::Shape(1,B,1));
+            auto op = dlprim::core::PointwiseOperationBroadcastReduce::create(
+                        ctx,
+                        {X.specs(),mean.specs(),rstd.specs(),dY.specs()},{dG.specs()},
+                        0,dlprim::float_data,
+                        "y0=(x0 - x1)*x2*x3;",
+                        "reduce_y0 = 0;",
+                        "reduce_y0 += y0;");
+            WSGuard wsg(op->workspace(),input.device());
+            op->enqueue({X,mean,rstd,dY},{dG},wsg.ws,{},{1},{0},q);
+        }
+        if(bwd_beta) {
+            beta_diff = new_tensor_as(norm_shape,input);
+            dB = todp(beta_diff);
+            dB.reshape(dlprim::Shape(N));
+            auto op = dlprim::core::PointwiseOperationBroadcastReduce::create(
+                        ctx,
+                        {dY.specs()},{dB.specs()},
+                        0,dlprim::float_data,
+                        "y0=x0;",
+                        "reduce_y0 = 0;",
+                        "reduce_y0 += y0;");
+            WSGuard wsg(op->workspace(),input.device());
+            op->enqueue({dY},{dB},wsg.ws,{},{1},{0},q);
+        }
+        if(bwd_data) {
+            x_diff = new_tensor_as(src_shape,input);
+            dX = todp(x_diff);
+            dX.reshape(bn_shape);
+            auto bn = dlprim::core::BatchNormFwdBwd::create(ctx,bn_shape,X.dtype());
+            size_t ws_size = bn->workspace();
+            
+            DataPtr tmp;
+            dlprim::Tensor ws = make_workspace(tmp,ws_size,input.device());
+
+            dlprim::Tensor mean = todp(save_mean);
+            dlprim::Tensor rstd  = todp(save_rstd);
+            dlprim::Tensor dYW_diff = dY;
+
+            if(weight_present) {
+                auto pt_dYW_diff = new_tensor_as(dY.shape(),input);
+                dYW_diff = todp(pt_dYW_diff);
+                dlprim::core::pointwise_operation_broadcast({dY,W},{dYW_diff},{},{},
+                        "y0 = x0 * x1;", 
+                        q);
+            }
+
+            bn->enqueue_backward_rstd(
+                    X,dYW_diff,
+                    mean,rstd,
+                    dX,0.0,
+                    ws,q);
+        }
+
+        sync_if_needed(input.device());
+        return std::tuple<torch::Tensor,torch::Tensor,torch::Tensor>(x_diff,gamma_diff,beta_diff);
+    }
+
 } // namespace
 TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::native_batch_norm",&ptdlprim::native_batch_norm);
       m.impl("aten::native_batch_norm_backward",&ptdlprim::native_batch_norm_backward);
+      m.impl("aten::native_layer_norm",&ptdlprim::native_layer_norm);
+      m.impl("aten::native_layer_norm_backward",&ptdlprim::native_layer_norm_backward);
 }
 
