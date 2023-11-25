@@ -100,6 +100,7 @@ using c10::DeviceType;
         bool affine = weight_present;
         dlprim::ExecutionContext q=getExecutionContext(input);
         dlprim::Context ctx(q);
+
         dlprim::Tensor dY = todp(grad_out);
         dlprim::Tensor X = todp(input);
         dlprim::Tensor W;
@@ -258,8 +259,10 @@ using c10::DeviceType;
 
         dlprim::ExecutionContext q=getExecutionContext(input);
         dlprim::Context ctx(q);
-        dlprim::Tensor dY = todp(grad_out);
-        dlprim::Tensor X = todp(input);
+        Tensor grad_out_c = grad_out.contiguous();
+        Tensor input_c = input.contiguous();
+        dlprim::Tensor dY = todp(grad_out_c);
+        dlprim::Tensor X = todp(input_c);
         auto src_shape = X.shape();
 
         int B = X.shape().total_size() / N;
