@@ -176,6 +176,12 @@ def test_all(device):
 
     print("LogSoftmax")
     test_fwd_bwd([([4,3],-1)],torch.nn.LogSoftmax(dim=1),device)
+    print("LogSoftmax")
+    test_fwd_bwd([([4,3,5],-1)],torch.nn.LogSoftmax(dim=-1),device)
+    print("Softmax")
+    test_fwd_bwd([([4,3],-1)],torch.nn.Softmax(dim=1),device)
+    print("Softmax")
+    test_fwd_bwd([([4,3,5],-1)],torch.nn.Softmax(dim=-1),device)
     print("NLLLoss");
     test_fwd_bwd([([4,3],-1),([4],3)],torch.nn.NLLLoss(),device)
     print("AAPool2d")
