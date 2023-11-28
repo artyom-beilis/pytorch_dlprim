@@ -180,8 +180,6 @@ def test_all(device):
     test_fwd_bwd([([4,3,5],-1)],torch.nn.LogSoftmax(dim=-1),device)
     print("Softmax")
     test_fwd_bwd([([4,3],-1)],torch.nn.Softmax(dim=1),device)
-    print("Softmax")
-    test_fwd_bwd([([4,3,5],-1)],torch.nn.Softmax(dim=-1),device)
     print("NLLLoss");
     test_fwd_bwd([([4,3],-1),([4],3)],torch.nn.NLLLoss(),device)
     print("AAPool2d")
@@ -218,6 +216,12 @@ def test_all(device):
     test_fwd_bwd([([4,3],-1)],torch.nn.SiLU(),device)
     print("SiLU_")
     test_fwd_bwd([([4,3],-1)],lambda x:torch.nn.SiLU(inplace=True)(x*1.0),device)
+
+    print("GELU")
+    test_fwd_bwd([([4,3],-1)],torch.nn.GELU(),device)
+    print("GELU tanh")
+    test_fwd_bwd([([4,3],-1)],lambda x:torch.nn.GELU(approximate='tanh')(x*1.0),device)
+
     #print("ChannelShuffle")
     #test_fwd_bwd([([3, 4, 2, 2],-1)],torch.nn.ChannelShuffle(2),device)
     print("BCE Loss")

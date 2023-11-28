@@ -1077,6 +1077,69 @@ using c10::DeviceType;
         sync_if_needed(self.device());
         return out;
     }
+
+    // {"schema": "aten::gelu.out(Tensor self, *, str approximate='none', Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & gelu_out(const Tensor & self, c10::string_view approximate, Tensor & out)
+    {
+        GUARD;
+        Tensor self_c = self.contiguous();
+        dlprim::Tensor Y = todp(out);
+        dlprim::Tensor X = todp(self);
+        auto q = getExecutionContext(self);
+        TORCH_CHECK(approximate == "none" || approximate == "tanh","Unsupported variant")
+        if(approximate == "tanh")
+            dlprim::core::pointwise_operation({X},{Y},{},"y0 = 0.5 * x0 * (1.0 + tanh(0.7978845608028654 * x0 * (1 + 0.044715 * x0 * x0)));",q); // 0.7978845608028654 = sqrt(2/pi)
+        else
+            dlprim::core::pointwise_operation({X},{Y},{},"y0 = x0 * (1.0 + erf(x0 * 0.7071067811865475  )) / 2.0;",q); // 0.7071067811865475 = 1/sqrt(2)
+        sync_if_needed(self.device());
+        return out;
+    }
+
+    // {"schema": "aten::gelu_backward.grad_input(Tensor grad_output, Tensor self, *, str approximate='none', Tensor(a!) grad_input) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & gelu_backward_out(const Tensor & grad_output, const Tensor & self, c10::string_view approximate, Tensor & grad_input)
+    {
+        GUARD;
+        Tensor grad_output_c = grad_output.contiguous();
+        Tensor self_c = self.contiguous();
+
+        dlprim::Tensor dX = todp(grad_input);
+        dlprim::Tensor dY = todp(grad_output_c);
+        dlprim::Tensor X  = todp(self_c);
+
+        auto q = getExecutionContext(self);
+        TORCH_CHECK(approximate == "none" || approximate == "tanh","Unsupported variant")
+
+        char const *eq;
+        // 1.128379167095512558561 = 2/ sqrt(pi)
+        // 0.7071067811865475 = 1/sqrt(2)
+        if(approximate == "tanh")
+            eq = R"xxx(
+                dtype alpha = 1.128379167095512558561 * 0.7071067811865475;
+                dtype koeff = 0.044715;
+                dtype beta  = alpha * koeff * 3;
+                dtype Y = tanh(alpha * fma(koeff,x0*x0*x0,x0));
+                y0 = 0.5f * x1 * fma(
+                    fma(-x0,Y * Y, x0),
+                    fma(beta,x0*x0,alpha),
+                    1 + Y                  
+                );
+            )xxx";
+        else
+            eq = R"xxx(
+                dtype alpha = 1.128379167095512558561 * 0.7071067811865475 * 0.5; 
+                dtype cdf = 0.5 * (1.0 + erf(x0 * 0.7071067811865475));
+                y0 = x1 * fma(
+                    alpha * x0,
+                    exp(-0.5f * x0*x0),
+                    cdf);
+            )xxx";
+
+        dlprim::core::pointwise_operation({X,dY},{dX},{},eq,q);
+
+        sync_if_needed(self.device());
+        return grad_input;
+    }
+
     
    
 #if 0 
@@ -1158,6 +1221,8 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::reciprocal.out",&ptdlprim::reciprocal_out);
       m.impl("aten::dot",&ptdlprim::dot);
       m.impl("aten::ceil.out",&ptdlprim::ceil_out);
+      m.impl("aten::gelu.out",&ptdlprim::gelu_out);
+      m.impl("aten::gelu_backward.grad_input",&ptdlprim::gelu_backward_out);
       
 }
 
