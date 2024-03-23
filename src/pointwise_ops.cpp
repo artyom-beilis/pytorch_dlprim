@@ -1065,6 +1065,21 @@ using c10::DeviceType;
         return out;
     }
     
+    // {"schema": "aten::clamp.out(Tensor self, Scalar min, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & clamp_min_out(const Tensor & self, const Scalar & min, Tensor & out)
+    {
+        GUARD;
+        Tensor self_c = self.contiguous();
+        dlprim::Tensor Y = todp(out);
+        dlprim::Tensor X = todp(self);
+        auto q = getExecutionContext(self);
+        
+        dlprim::core::pointwise_operation({X},{Y},{min.to<double>()},"y0 = max(w0,x0);",q);
+        
+        sync_if_needed(self.device());
+        return out;
+    }
+    
     // {"schema": "aten::ceil.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & ceil_out(const Tensor & self, Tensor & out)
     {
@@ -1217,6 +1232,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::min",&ptdlprim::min);
       m.impl("aten::max",&ptdlprim::max);
       m.impl("aten::clamp.out",&ptdlprim::clamp_out);
+      m.impl("aten::clamp_min.out",&ptdlprim::clamp_min_out);
       m.impl("aten::neg.out",&ptdlprim::neg_out);
       m.impl("aten::reciprocal.out",&ptdlprim::reciprocal_out);
       m.impl("aten::dot",&ptdlprim::dot);
