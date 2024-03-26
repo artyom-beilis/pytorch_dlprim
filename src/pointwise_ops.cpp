@@ -497,7 +497,8 @@ using c10::DeviceType;
     Tensor & hardtanh_(Tensor & self, const Scalar & min_val, const Scalar & max_val)
     {
         GUARD;
-        self = self.contiguous();
+        if(!self.is_contiguous())
+          self = self.contiguous();
         dlprim::Tensor X=todp(self);
         double w0 = min_val.toDouble();
         double w1 = max_val.toDouble();
