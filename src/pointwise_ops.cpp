@@ -497,8 +497,8 @@ using c10::DeviceType;
     Tensor & hardtanh_(Tensor & self, const Scalar & min_val, const Scalar & max_val)
     {
         GUARD;
-        Tensor self_c = self.contiguous();
-        dlprim::Tensor X=todp(self_c);
+        self = self.contiguous();
+        dlprim::Tensor X=todp(self);
         double w0 = min_val.toDouble();
         double w1 = max_val.toDouble();
         dlprim::core::pointwise_operation({X},{X},{w0,w1},"y0=max(w0,min(w1,x0));",getExecutionContext(self));
@@ -635,8 +635,9 @@ using c10::DeviceType;
     Tensor & hardswish_(Tensor & self)
     {
         GUARD;
-        Tensor self_c = self.contiguous();
-        dlprim::Tensor x=todp(self_c);
+        if(!self.is_contiguous())
+          self = self.contiguous();
+        dlprim::Tensor x=todp(self);
         dlprim::core::pointwise_operation({x},{x},{},"y0 = x0 <= -3 ? 0 : (x0>=3 ? x0 : x0*(x0+3)/6);",getExecutionContext(self));
         sync_if_needed(self.device());
         return self;
@@ -734,14 +735,12 @@ using c10::DeviceType;
     Tensor & sigmoid_backward_out(const Tensor & grad_output, const Tensor & output, Tensor & grad_input)
     {
         GUARD;
-        if(!output.is_contiguous())
-          output = output.contiguous();
         
-        if(!grad_output.is_contiguous())
-          grad_output = grad_output.contiguous();
+        Tensor output_c = output.contiguous(),
+               grad_output_c = grad_output.contiguous();
                
-        dlprim::Tensor y=todp(output);
-        dlprim::Tensor dy=todp(grad_output);
+        dlprim::Tensor y=todp(output_c);
+        dlprim::Tensor dy=todp(grad_output_c);
         
         dlprim::Tensor dx=todp(grad_input);
         dlprim::core::activation_backward(dx,dy,y,dlprim::StandardActivations::sigmoid,0,getExecutionContext(grad_output));
