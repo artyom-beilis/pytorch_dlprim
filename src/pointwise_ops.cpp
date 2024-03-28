@@ -50,7 +50,7 @@ using c10::DeviceType;
     Tensor & relu_(Tensor & self)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
+        Tensor self_c = self.contiguous();
         dlprim::Tensor X = todp(self_c);
         dlprim::ExecutionContext q = getExecutionContext(self);
         dlprim::core::activation_forward(X,X,dlprim::StandardActivations::relu,q);
@@ -141,7 +141,7 @@ using c10::DeviceType;
     Tensor & mul_scalar_(Tensor & self, const Scalar & other)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
+        Tensor self_c = self.contiguous();
         dlprim::Tensor x0=todp(self_c);
         float scale = other.to<double>();
         dlprim::core::pointwise_operation({x0},{x0},{scale},
@@ -159,8 +159,7 @@ using c10::DeviceType;
     Tensor & add_out(const Tensor & self, const Tensor & other, const Scalar & alpha, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
         dlprim::Tensor x0=todp(self_c);
         dlprim::Tensor y0=todp(out_c);
         double value=0;
@@ -171,7 +170,7 @@ using c10::DeviceType;
                                       getExecutionContext(self));
         }
         else {
-            Tensor other_c = other.is_contiguous() ? other : other.contiguous();
+            Tensor other_c = other.contiguous();
             dlprim::Tensor x1=todp(other_c);
             float w0 = alpha.toDouble();
             dlprim::core::pointwise_operation_broadcast({x0,x1},{y0},{w0},
@@ -190,8 +189,7 @@ using c10::DeviceType;
     Tensor & exp_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
         
         dlprim::core::pointwise_operation({todp(self_c)},{todp(out_c)},{},
                     "y0 = exp(x0);",getExecutionContext(self));
@@ -207,8 +205,7 @@ using c10::DeviceType;
     Tensor & log_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
         
         dlprim::core::pointwise_operation({todp(self_c)},{todp(out_c)},{},
                     "y0 = log(x0);",getExecutionContext(self));
@@ -232,10 +229,8 @@ using c10::DeviceType;
     Tensor & addcmul_out(const Tensor & self, const Tensor & tensor1, const Tensor & tensor2, const Scalar & value, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
-        Tensor tensor1_c = tensor1.is_contiguous() ? tensor1 : tensor1.contiguous();
-        Tensor tensor2_c = tensor2.is_contiguous() ? tensor2 : tensor2.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous(),
+               tensor1_c = tensor1.contiguous(), tensor2_c = tensor2.contiguous();
         
         dlprim::Tensor x0=todp(self_c);
         dlprim::Tensor x1=todp(tensor1_c);
@@ -256,8 +251,7 @@ using c10::DeviceType;
     Tensor & comp_out(const Tensor & self, const Scalar & other, Tensor & out,std::string const &op)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
         
         dlprim::Tensor x0=todp(self_c);
         dlprim::Tensor y0=todp(out_c);
@@ -300,8 +294,7 @@ using c10::DeviceType;
     Tensor & neg_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
         
         dlprim::Tensor x0=todp(self_c);
         dlprim::Tensor y0=todp(out_c);
@@ -317,8 +310,7 @@ using c10::DeviceType;
     Tensor & reciprocal_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
         
         dlprim::Tensor x0=todp(self_c);
         dlprim::Tensor y0=todp(out_c);
@@ -335,8 +327,7 @@ using c10::DeviceType;
     Tensor & sqrt_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
         
         dlprim::Tensor x0=todp(self_c);
         dlprim::Tensor y0=todp(out_c);
@@ -356,8 +347,7 @@ using c10::DeviceType;
     Tensor & div_out(const Tensor & self, const Tensor & other, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
         
         dlprim::Tensor x0=todp(self_c);
         dlprim::Tensor y0=todp(out_c);
@@ -388,8 +378,7 @@ using c10::DeviceType;
         GUARD;
         double scale=0;
         
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
         
         dlprim::Tensor x0=todp(self_c);
         dlprim::Tensor y0=todp(out_c);
@@ -400,7 +389,7 @@ using c10::DeviceType;
                                           getExecutionContext(self));
         }
         else {
-            Tensor other_c = other.is_contiguous() ? other : other.contiguous();
+            Tensor other_c = other.contiguous();
             
             dlprim::Tensor x1=todp(other_c);
             dlprim::core::pointwise_operation_broadcast({x0,x1},{y0},{},
@@ -419,10 +408,8 @@ using c10::DeviceType;
     Tensor & addcdiv_out(const Tensor & self, const Tensor & tensor1, const Tensor & tensor2, const Scalar & value, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
-        Tensor tensor1_c = tensor1.is_contiguous() ? tensor1 : tensor1.contiguous();
-        Tensor tensor2_c = tensor2.is_contiguous() ? tensor2 : tensor2.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous(),
+               tensor1_c = tensor1.contiguous(), tensor2_c = tensor2.contiguous();
         
         dlprim::Tensor x0 = todp(self_c);
         dlprim::Tensor x1 = todp(tensor1_c);
@@ -444,9 +431,9 @@ using c10::DeviceType;
     Tensor & threshold_backward_out(const Tensor & grad_output, const Tensor & self, const Scalar & threshold, Tensor & grad_input)
     {
         GUARD; 
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor grad_input_c = grad_input.is_contiguous() ? grad_input : grad_input.contiguous();
-        Tensor grad_output_c = grad_output.is_contiguous() ? grad_output : grad_output.contiguous();
+        Tensor self_c = self.contiguous(),
+               grad_input_c = grad_input.contiguous(),
+               grad_output_c = grad_output.contiguous();
                
         dlprim::Tensor dy=todp(grad_output_c);
         dlprim::Tensor dx=todp(grad_input_c);
@@ -504,8 +491,7 @@ using c10::DeviceType;
     Tensor & sum_mean_out(const Tensor & self, OptionalIntArrayRef dim, bool keepdim, c10::optional<ScalarType> /*dtype*/, Tensor & out, bool mean)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
         
         dlprim::Tensor X = todp(self_c);
         auto r = squeeze_dim(X.shape(),dim,keepdim);
@@ -555,8 +541,8 @@ using c10::DeviceType;
     Tensor hardtanh(Tensor const &self, const Scalar & min_val, const Scalar & max_val)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        dlprim::Tensor X=todp(self_c);
+        Tensor self_c = self.contiguous();
+        dlprim::Tensor X = todp(self_c);
         Tensor out = new_tensor_as(X.shape(),self);
         dlprim::Tensor Y(todp(out));
         double w0 = min_val.toDouble();
@@ -571,7 +557,7 @@ using c10::DeviceType;
     Tensor & hardtanh_(Tensor & self, const Scalar & min_val, const Scalar & max_val)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
+        Tensor self_c = self.contiguous();
         dlprim::Tensor X=todp(self_c);
         double w0 = min_val.toDouble();
         double w1 = max_val.toDouble();
@@ -586,7 +572,7 @@ using c10::DeviceType;
     Tensor hardtanh_backward(const Tensor & grad_output, const Tensor & self, const Scalar & min_val, const Scalar & max_val)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
+        Tensor self_c = self.contiguous();
         dlprim::Tensor X  = todp(self_c);
         dlprim::Tensor dY = todp(grad_output);
         Tensor result = new_tensor_as(X.shape(),self);
@@ -602,7 +588,7 @@ using c10::DeviceType;
     Tensor abs(const Tensor & self)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
+        Tensor self_c = self.contiguous();
         dlprim::Tensor x=todp(self_c);
         Tensor out = new_tensor_as(x.shape(),self);
         dlprim::Tensor y=todp(out);
@@ -615,8 +601,7 @@ using c10::DeviceType;
     Tensor & abs_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
         
         dlprim::Tensor x=todp(self_c);
         dlprim::Tensor y=todp(out_c);
@@ -633,8 +618,7 @@ using c10::DeviceType;
     Tensor & sgn_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
         
         dlprim::Tensor x=todp(self_c);
         dlprim::Tensor y=todp(out_c);
@@ -651,7 +635,7 @@ using c10::DeviceType;
     Tensor &cat_internal(TL const &tensors, int64_t dim, Tensor &out, bool reuse)
     {
         GUARD;
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
+        Tensor out_c = out.contiguous();
         std::vector<dlprim::Tensor> list;
         std::vector<Tensor> list_c;
         for(auto const &t:tensors) {
@@ -729,7 +713,7 @@ using c10::DeviceType;
     {
         GUARD;
         
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
+        Tensor self_c = self.contiguous();
         dlprim::Tensor x=todp(self_c);
         dlprim::core::pointwise_operation({x},{x},{},"y0 = x0 <= -3 ? 0 : (x0>=3 ? x0 : x0*(x0+3)/6);",getExecutionContext(self));
         
@@ -743,8 +727,7 @@ using c10::DeviceType;
     Tensor & hardsigmoid_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
         
         dlprim::Tensor x=todp(self_c);
         dlprim::Tensor y=todp(out_c);
@@ -760,9 +743,9 @@ using c10::DeviceType;
     Tensor & hardsigmoid_backward_out(const Tensor & grad_output, const Tensor & self, Tensor & grad_input)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor grad_input_c = grad_input.is_contiguous() ? grad_input : grad_input.contiguous();
-        Tensor grad_output_c = grad_output.is_contiguous() ? grad_output : grad_output.contiguous();
+        Tensor self_c = self.contiguous(),
+               grad_input_c = grad_input.contiguous(),
+               grad_output_c = grad_output.contiguous();
         
         dlprim::Tensor x=todp(self_c);
         dlprim::Tensor dx=todp(grad_input_c);
@@ -781,13 +764,13 @@ using c10::DeviceType;
     Tensor hardswish_backward(const Tensor & grad_output, const Tensor & self)
     {
         GUARD;
-        Tensor grad_output_c = grad_output.is_contiguous() ? grad_output : grad_output.contiguous();
+        Tensor grad_output_c = grad_output.contiguous();
         dlprim::Tensor dy=todp(grad_output_c);
         
         Tensor out = new_tensor_as(dy.shape(),grad_output);
         dlprim::Tensor dx=todp(out);
         
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
+        Tensor self_c = self.contiguous();
         dlprim::Tensor x =todp(self_c);
         dlprim::core::pointwise_operation({x,dy},{dx},{},
             R"xxx(
@@ -808,8 +791,7 @@ using c10::DeviceType;
     Tensor & sigmoid_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
         
         dlprim::Tensor x=todp(self_c);
         dlprim::Tensor y=todp(out_c);
@@ -825,7 +807,7 @@ using c10::DeviceType;
     Tensor sigmoid(const Tensor & self)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
+        Tensor self_c = self.contiguous();
         
         dlprim::Tensor x=todp(self_c);
         Tensor out = new_tensor_as(x.shape(),self);
@@ -840,7 +822,7 @@ using c10::DeviceType;
     Tensor & sigmoid_(Tensor & self)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
+        Tensor self_c = self.contiguous();
         
         dlprim::Tensor X=todp(self_c);
         dlprim::core::activation_forward(X,X,dlprim::StandardActivations::sigmoid,getExecutionContext(self));
@@ -856,9 +838,9 @@ using c10::DeviceType;
     Tensor & sigmoid_backward_out(const Tensor & grad_output, const Tensor & output, Tensor & grad_input)
     {
         GUARD;
-        Tensor output_c = output.is_contiguous() ? output : output.contiguous();
-        Tensor grad_output_c = grad_output.is_contiguous() ? grad_output : grad_output.contiguous();
-        Tensor grad_input_c = grad_input.is_contiguous() ? grad_input : grad_input.contiguous();
+        Tensor output_c = output.contiguous(),
+               grad_output_c = grad_output.contiguous(),
+               grad_input_c  = grad_input.contiguous();
                
         dlprim::Tensor y=todp(output_c);
         dlprim::Tensor dy=todp(grad_output_c);
@@ -877,8 +859,7 @@ using c10::DeviceType;
     Tensor & tanh_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
         
         dlprim::Tensor x=todp(self_c);
         dlprim::Tensor y=todp(out_c);
@@ -895,9 +876,9 @@ using c10::DeviceType;
     Tensor & tanh_backward_out(const Tensor & grad_output, const Tensor & output, Tensor & grad_input)
     {
         GUARD;                
-        Tensor grad_input_c = grad_input.is_contiguous() ? grad_input : grad_input.contiguous();
-        Tensor grad_output_c = grad_output.is_contiguous() ? grad_output : grad_output.contiguous();        
-        Tensor output_c = output.is_contiguous() ? output : output.contiguous();
+        Tensor grad_input_c  = grad_input.contiguous(),
+               grad_output_c = grad_output.contiguous(),
+               output_c      = output.contiguous();
                 
         dlprim::Tensor dY=todp(grad_output_c);
         dlprim::Tensor Y=todp(output_c);
@@ -915,8 +896,7 @@ using c10::DeviceType;
     Tensor & silu_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
         
         dlprim::Tensor x=todp(self_c);
         dlprim::Tensor y=todp(out);
@@ -933,9 +913,9 @@ using c10::DeviceType;
     Tensor & silu_backward_out(const Tensor & grad_output, const Tensor & self, Tensor & grad_input)
     {
         GUARD; 
-        Tensor grad_output_c = grad_output.is_contiguous() ? grad_output : grad_output.contiguous();
-        Tensor grad_input_c = grad_input.is_contiguous() ? grad_input : grad_input.contiguous();
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
+        Tensor grad_output_c = grad_output.contiguous(),
+               grad_input_c  = grad_input.contiguous(),
+               self_c = self.contiguous();
                
         dlprim::Tensor x=todp(self_c);
         dlprim::Tensor dy=todp(grad_output_c);
@@ -958,7 +938,7 @@ using c10::DeviceType;
     Tensor tanh(const Tensor & self)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
+        Tensor self_c = self.contiguous();
         dlprim::Tensor x=todp(self_c);
         Tensor out = new_tensor_as(x.shape(),self);
         dlprim::Tensor y=todp(out);
@@ -970,7 +950,7 @@ using c10::DeviceType;
     Tensor & tanh_(Tensor & self)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
+        Tensor self_c = self.contiguous();
         dlprim::Tensor X=todp(self_c);
         dlprim::core::activation_forward(X,X,dlprim::StandardActivations::tanh,getExecutionContext(self));
         if(!self.is_contiguous())
@@ -984,8 +964,7 @@ using c10::DeviceType;
     {
         GUARD;
         double slope = negative_slope.to<double>();
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
         
         dlprim::Tensor x=todp(self_c);
         dlprim::Tensor y=todp(out_c);
@@ -1003,9 +982,9 @@ using c10::DeviceType;
     {
         GUARD;
         double slope = negative_slope.to<double>();
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor grad_input_c = grad_input.is_contiguous() ? grad_input : grad_input.contiguous();
-        Tensor grad_output_c = grad_output.is_contiguous() ? grad_output : grad_output.contiguous();
+        Tensor self_c = self.contiguous(),
+               grad_input_c  = grad_input.contiguous(),
+               grad_output_c = grad_output.contiguous();
         
         dlprim::Tensor y=todp(self_c);
         dlprim::Tensor dy=todp(grad_output_c);
@@ -1023,8 +1002,7 @@ using c10::DeviceType;
     Tensor & argmax_out(const Tensor & self, c10::optional<int64_t> dim, bool keepdim, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
         
         dlprim::Tensor X = todp(self_c);
         dlprim::Tensor Yind = todp(out_c);
@@ -1074,7 +1052,7 @@ using c10::DeviceType;
     static Tensor min_or_max(const Tensor & self, bool is_min)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
+        Tensor self_c = self.contiguous();
         dlprim::Tensor X = todp(self_c);
         Tensor result = new_tensor_as(dlprim::Shape(),self);
         dlprim::Tensor Y = todp(result);
@@ -1115,8 +1093,7 @@ using c10::DeviceType;
     Tensor dot(const Tensor & self, const Tensor & tensor)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor tensor_c = tensor.is_contiguous() ? tensor : tensor.contiguous();
+        Tensor self_c = self.contiguous(), tensor_c = tensor.contiguous();
         
         dlprim::Tensor x0=todp(self_c);
         dlprim::Tensor x1=todp(tensor_c);
@@ -1143,8 +1120,7 @@ using c10::DeviceType;
     Tensor & ne_out(const Tensor & self, const Scalar & other, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
         
         dlprim::Tensor x(todp(self_c));
         dlprim::Tensor y(todp(out_c));
@@ -1164,9 +1140,8 @@ using c10::DeviceType;
     Tensor & ne_out_tensor(const Tensor & self, const Tensor & other, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
-        Tensor other_c = other.is_contiguous() ? other : other.contiguous();
+        Tensor self_c  = self.contiguous(), out_c = out.contiguous(),
+               other_c = other.contiguous();
         
         dlprim::Tensor x0(todp(self_c));
         dlprim::Tensor x1(todp(other_c));
@@ -1187,8 +1162,7 @@ using c10::DeviceType;
     Tensor & eq_out(const Tensor & self, const Scalar & other, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
         
         dlprim::Tensor x(todp(self_c));
         dlprim::Tensor y(todp(out_c));
@@ -1208,8 +1182,7 @@ using c10::DeviceType;
     Tensor & eq_out_tensor(const Tensor & self, const Tensor & other, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
         
         dlprim::Tensor x0(todp(self_c));
         dlprim::Tensor y(todp(out_c));
@@ -1220,7 +1193,7 @@ using c10::DeviceType;
                         getExecutionContext(self));
         }
         else {
-            Tensor other_c = other.is_contiguous() ? other : other.contiguous();
+            Tensor other_c = other.contiguous();
             
             dlprim::Tensor x1(todp(other_c));
             dlprim::core::pointwise_operation_broadcast({x0,x1},{y},{},
@@ -1239,9 +1212,8 @@ using c10::DeviceType;
     Tensor & bitwise_and_out(const Tensor & self, const Tensor & other, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
-        Tensor other_c = other.is_contiguous() ? other : other.contiguous();
+        Tensor self_c  = self.contiguous(), out_c = out.contiguous(),
+               other_c = other.contiguous();
         
         dlprim::Tensor x0(todp(self_c)),x1(todp(other_c)),y0(todp(out_c));
         dlprim::core::pointwise_operation_broadcast(
@@ -1260,8 +1232,7 @@ using c10::DeviceType;
     Tensor & clamp_out(const Tensor & self, const c10::optional<Scalar> & min, const c10::optional<Scalar> & max, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
         dlprim::Tensor Y = todp(out_c);
         dlprim::Tensor X = todp(self_c);
         auto q = getExecutionContext(self);
@@ -1285,8 +1256,7 @@ using c10::DeviceType;
     Tensor & clamp_min_out(const Tensor & self, const Scalar & min, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
         dlprim::Tensor Y = todp(out_c);
         dlprim::Tensor X = todp(self_c);
         auto q = getExecutionContext(self);
@@ -1304,8 +1274,7 @@ using c10::DeviceType;
     Tensor & ceil_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
         dlprim::Tensor X = todp(self_c);
         dlprim::Tensor Y = todp(out_c);
         auto q = getExecutionContext(self);
@@ -1322,8 +1291,7 @@ using c10::DeviceType;
     Tensor & gelu_out(const Tensor & self, c10::string_view approximate, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
-        Tensor out_c = out.is_contiguous() ? out : out.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
         dlprim::Tensor Y = todp(out_c);
         dlprim::Tensor X = todp(self_c);
         auto q = getExecutionContext(self);
@@ -1344,9 +1312,9 @@ using c10::DeviceType;
     Tensor & gelu_backward_out(const Tensor & grad_output, const Tensor & self, c10::string_view approximate, Tensor & grad_input)
     {
         GUARD;
-        Tensor grad_output_c = grad_output.is_contiguous() ? grad_output : grad_output.contiguous();
-        Tensor grad_input_c = grad_input.is_contiguous() ? grad_input : grad_input.contiguous();
-        Tensor self_c = self.is_contiguous() ? self : self.contiguous();
+        Tensor grad_output_c = grad_output.contiguous(),
+               grad_input_c  = grad_input.contiguous(),
+               self_c = self.contiguous();
 
         dlprim::Tensor dX = todp(grad_input_c);
         dlprim::Tensor dY = todp(grad_output_c);
