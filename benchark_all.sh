@@ -1,6 +1,12 @@
 batch=64
-device='opencl:0'
-base="$1"
+device='privateuseone:0'
+if [ "$1" == "" ]
+then 
+    base=./dlprimitives/
+else
+    base="$1"
+fi
+
 for net in  alexnet \
             resnet18 \
             vgg16 \
