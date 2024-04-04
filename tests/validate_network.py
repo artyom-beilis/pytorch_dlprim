@@ -232,7 +232,7 @@ if __name__ == '__main__':
     p.add_argument('--eval',default=False,action='store_true')
     p.add_argument('--pretrained',type=bool,default=True)
     r = p.parse_args()
-    if r.device.find('ocl')==0:
+    if r.device.find('ocl')==0 or r.device.find('privateuseone') == 0:
         if os.name == 'nt':
             torch.ops.load_library(r"build\pt_ocl.dll")
         else:

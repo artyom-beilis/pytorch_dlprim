@@ -270,7 +270,7 @@ if __name__ == '__main__':
     p = argparse.ArgumentParser()
     p.add_argument('--device',default='ocl:0')
     r = p.parse_args()
-    if r.device.find('ocl')==0:
+    if r.device.find('ocl')==0 or r.device.find('privateuseone')==0:
         if os.name == 'nt':
             torch.ops.load_library(r"build\pt_ocl.dll")
         else:
