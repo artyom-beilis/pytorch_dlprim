@@ -23,16 +23,18 @@ for net in  alexnet \
             regnet_y_400mf 
 do
     echo -n "$net "
-    OUTPUT=$(timeout 1 python $base/tools/validate_network.py --model=$net --benchmark --batch=$batch --device=$device)
-    if [[ $? -eq 124 ]]
+    OUTPUT=$(timeout 60 python $base/tools/validate_network.py --model=$net --benchmark --batch=$batch --device=$device)
+    retVal=$?
+    if [ $retVal -eq 124 ]
     then
-      echo 'Time exceed!'
+      echo 'Error: Time exceeded!'
     else
-      if [[ $? -ne 0 ]]
+      if [ $retVal -ne 0 ]
       then
-        echo "Error: $OUTPUT"
+        echo -n "Error: "
+        echo "$OUTPUT" | tail -n 1
       else
-        echo $OUTPUT | tail -n 1 | awk '{print $4}'
+        echo "$OUTPUT" | tail -n 1 | awk '{print $4}'
       fi
     fi
 done
