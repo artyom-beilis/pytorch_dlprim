@@ -330,7 +330,24 @@ using c10::DeviceType;
         return out;
     }
 
-   
+    // {"schema": "aten::lerp.Scalar_out(Tensor self, Tensor end, Scalar weight, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & lerp_out(const Tensor & self, const Tensor & end, const Scalar & weight, Tensor & out)
+    {
+        GUARD;
+        Tensor self_c = self.contiguous();
+        Tensor end_c = end.contiguous();
+        dlprim::Tensor x0=todp(self_c);
+        dlprim::Tensor x1=todp(end_c);
+        dlprim::Tensor y0 = todp(out);
+        float w = weight.toDouble();
+
+        dlprim::core::pointwise_operation_broadcast({x0,x1},{y0},{w},
+                                      "y0 = x0 + w0 * (x1 - x0 );",
+                                      getExecutionContext(self));
+        sync_if_needed(self.device());
+        return out;
+
+    }
     Tensor & mul_out(const Tensor & self, const Tensor & other, Tensor & out)
     {
         GUARD;
@@ -1239,6 +1256,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::ceil.out",&ptdlprim::ceil_out);
       m.impl("aten::gelu.out",&ptdlprim::gelu_out);
       m.impl("aten::gelu_backward.grad_input",&ptdlprim::gelu_backward_out);
+      m.impl("aten::lerp.Scalar_out",&ptdlprim::lerp_out);
       
 }
 

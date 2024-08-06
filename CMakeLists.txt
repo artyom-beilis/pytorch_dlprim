@@ -1,8 +1,7 @@
 cmake_minimum_required(VERSION 3.1 FATAL_ERROR)
 project(dlprim_backend)
 
-find_package(Torch REQUIRED)
-
+find_package(Torch 1.13 REQUIRED)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
 option(BUILD_CORE_ONLY "Core Build" ON)
 add_subdirectory(dlprimitives)

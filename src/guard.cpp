@@ -8,7 +8,7 @@ namespace ptdlprim {
 
     static void leave_log_exception(char const *name)
     {
-        if(std::uncaught_exception()) {
+        if(std::uncaught_exceptions()) {
             std::cerr << "Exception from " << name << std::endl;
         }
     }

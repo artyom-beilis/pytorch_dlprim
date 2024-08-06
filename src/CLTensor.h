@@ -133,6 +133,11 @@ namespace ptdlprim {
             release(std::move(ptr));
         }
 
+        static bool is_ready(int index)
+        {
+            return instance().data(index).ready;
+        }
+
     private:
 
         struct DevData {

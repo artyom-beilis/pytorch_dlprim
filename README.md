@@ -4,6 +4,7 @@ DLPrimitives-OpenCL out of tree backend for pytorch
 
 It is only beginning, but you can train some vision nets using OpenCL devices.
 
+Supported pytorch versions are 1.13 and torch `>=` 2.4
 
 # Validated Networks
 

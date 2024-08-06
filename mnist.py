@@ -121,6 +121,7 @@ def main():
             torch.ops.load_library("build/libpt_ocl.so")
         try:
             torch.utils.rename_privateuse1_backend('ocl')
+            torch._register_device_module("ocl", object())
         except:
             device = device.replace('ocl','privateuseone')
 

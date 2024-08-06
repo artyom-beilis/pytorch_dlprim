@@ -236,6 +236,8 @@ def test_all(device):
     test_fwd([([4,3,5],-1)],torch.min,device)
     print("Max")
     test_fwd([([4,3,5],-1)],torch.max,device)
+    print("Lerp")
+    test_fwd([([4,3,5],-1),([4,3,1],-1)],lambda x,y:torch.lerp(x,y,0.1),device)
     print("Dot")
     test_fwd([([16],-1),([16],-1)],torch.dot,device)
     print("Clamp 1")
@@ -277,6 +279,7 @@ if __name__ == '__main__':
             torch.ops.load_library("build/libpt_ocl.so")
         try:
             torch.utils.rename_privateuse1_backend('ocl')
+            torch._register_device_module("ocl", object())
         except:
             r.device = r.device.replace('ocl','privateuseone')
     test_all(r.device)

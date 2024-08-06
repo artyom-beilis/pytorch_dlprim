@@ -1,4 +1,21 @@
 #include "CLTensor.h"
+#include <torch/version.h>
+
+#if TORCH_VERSION_MAJOR <= 1
+    #define DLPRIM_NO_HOOKS_INTERFACE
+    #if TORCH_VERSION_MINOR < 13
+    #error "Supported pytorch versions are ==1.13 or >=2.4"
+    #endif
+#else
+    #if TORCH_VERSION_MINOR < 4
+    #error "Supported pytorch 2.x should be  >=2.4"
+    #endif
+#endif
+
+
+#ifndef DLPRIM_NO_HOOKS_INTERFACE
+#include <ATen/detail/PrivateUse1HooksInterface.h>
+#endif
 
 namespace ptdlprim {
 
@@ -63,8 +80,30 @@ private:
 
 thread_local Device OCLDevImpl::dt_ = Device(OpenCLDeviceType,0);
 thread_local Stream OCLDevImpl::s_  = Stream(c10::Stream::UNSAFE,Device(OpenCLDeviceType,0),0);
+
+#ifndef DLPRIM_NO_HOOKS_INTERFACE
+struct HooksInterface : public at::PrivateUse1HooksInterface {
+    bool hasPrimaryContext(c10::DeviceIndex device_index) const override
+    {
+        return CLContextManager::is_ready(device_index);
+    }
+    virtual ~HooksInterface() {};
+};
+
+struct _Reg {
+    static HooksInterface interface;
+    _Reg() {
+        at::RegisterPrivateUse1HooksInterface(&interface);
+    }
+} reg_impl;
+
+HooksInterface _Reg::interface;
+
+#endif
+
+
 // register backend
 c10::impl::DeviceGuardImplRegistrar ocl_impl_reg(OpenCLDeviceType,&ocl_impl_instance);
-} // namespace
 
+} // namespace
 
