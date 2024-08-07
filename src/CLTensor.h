@@ -19,6 +19,21 @@ namespace ptdlprim {
     constexpr c10::DeviceType OpenCLDeviceType = c10::DeviceType::PrivateUse1;
 #endif    
 
+
+    class ExecGuard {
+    public:
+        ExecGuard(char const *name);
+        ~ExecGuard();
+    private:
+        char const *name_;
+    };
+    
+	#ifdef _MSC_VER 
+	#  define GUARD ExecGuard debug_guard(__FUNCSIG__ );
+	#else
+    #  define GUARD ExecGuard debug_guard(__PRETTY_FUNCTION__);
+	#endif
+
     struct CLMemAllocation {
 
         CLMemAllocation(CLMemAllocation const &) = delete;
@@ -135,7 +150,10 @@ namespace ptdlprim {
 
         static bool is_ready(int index)
         {
-            return instance().data(index).ready;
+            auto &data = instance().data_;
+            if(index < 0 || index >= int(data.size()) || !data[index])
+                return false;
+            return data[index]->ready;
         }
 
     private:

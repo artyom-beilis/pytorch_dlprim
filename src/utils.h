@@ -45,19 +45,4 @@ namespace ptdlprim {
 
 
 
-
-
-    class ExecGuard {
-    public:
-        ExecGuard(char const *name);
-        ~ExecGuard();
-    private:
-        char const *name_;
-    };
-    
-	#ifdef _MSC_VER 
-	#  define GUARD ExecGuard debug_guard(__FUNCSIG__ );
-	#else
-    #  define GUARD ExecGuard debug_guard(__PRETTY_FUNCTION__);
-	#endif
 } // namespace

@@ -262,6 +262,7 @@ if __name__ == '__main__':
             dict(model='mobilenet_v3_small',eval=True,fwd=True), # fails for cuda bwd as well
             dict(model='resnext50_32x4d'),
             dict(model='wide_resnet50_2'),
+            dict(model='convnext_small',eval=True),
             dict(model='mnasnet1_0',eval=True),
             dict(model='efficientnet_b0',eval=True),
             dict(model='efficientnet_b4',eval=True),

@@ -155,17 +155,30 @@ using c10::DeviceType;
     Tensor & add_out(const Tensor & self, const Tensor & other, const Scalar & alpha, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.contiguous();
-        dlprim::Tensor x0=todp(self_c);
-        dlprim::Tensor y0=todp(out);
         double value=0;
+        dlprim::Tensor y0=todp(out);
+        auto dev_to_sync = self.device();
         if(isCPUScalar(other,value)) {
+            Tensor self_c = self.contiguous();
+            dlprim::Tensor x0=todp(self_c);
             float w0 = alpha.toDouble() * value;
             dlprim::core::pointwise_operation({x0},{y0},{w0},
                                       "y0 = x0 + w0;",
                                       getExecutionContext(self));
         }
+        else if(isCPUScalar(self,value)) {
+            dev_to_sync = other.device();
+            Tensor other_c = other.contiguous();
+            dlprim::Tensor x0=todp(other_c);
+            float w0 = value;
+            float w1 = alpha.toDouble();
+            dlprim::core::pointwise_operation({x0},{y0},{w0,w1},
+                                      "y0 = w0 + x0 * w1;",
+                                      getExecutionContext(other));
+        }
         else {
+            Tensor self_c = self.contiguous();
+            dlprim::Tensor x0=todp(self_c);
             Tensor other_c = other.contiguous();
             dlprim::Tensor x1=todp(other_c);
             float w0 = alpha.toDouble();
@@ -173,8 +186,7 @@ using c10::DeviceType;
                                       "y0 = x0 + x1 * w0;",
                                       getExecutionContext(self));
         }
-        
-        sync_if_needed(self.device());
+        sync_if_needed(dev_to_sync);
         return out;
     }
 
