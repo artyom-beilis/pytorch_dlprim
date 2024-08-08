@@ -25,7 +25,7 @@ using c10::Device;
 using c10::DeviceType;
 
 
-    bool isCPUScalar(Tensor const &other,double &value)
+    bool isCPUScalar(Tensor const &other, double &value)
     {
         if(other.device() == Device(c10::kCPU) && other.numel()==1) {
             switch(other.dtype().toScalarType()){
@@ -47,21 +47,20 @@ using c10::DeviceType;
     }
 
 
-
-
-
     Tensor & relu_(Tensor & self)
     {
         GUARD;
-        dlprim::Tensor X = todp(self);
+        Tensor self_c = self.contiguous();
+        dlprim::Tensor X = todp(self_c);
         dlprim::ExecutionContext q = getExecutionContext(self);
         dlprim::core::activation_forward(X,X,dlprim::StandardActivations::relu,q);
+        
+        if (!self.is_contiguous())
+            self.copy_(self_c);
+        
         sync_if_needed(self.device());
         return self;
     }
-
-
-
     
     template<dlprim::StandardActivations Act>
     class act_cls : public torch::autograd::Function<act_cls<Act> > {
@@ -142,11 +141,16 @@ using c10::DeviceType;
     Tensor & mul_scalar_(Tensor & self, const Scalar & other)
     {
         GUARD;
-        dlprim::Tensor x0=todp(self);
+        Tensor self_c = self.contiguous();
+        dlprim::Tensor x0=todp(self_c);
         float scale = other.to<double>();
         dlprim::core::pointwise_operation({x0},{x0},{scale},
                                           "y0 = x0*w0;",
                                           getExecutionContext(self));
+        
+        if (!self.is_contiguous())
+            self.copy_(self_c);
+        
         sync_if_needed(self.device());
         return self;
     }
@@ -155,8 +159,9 @@ using c10::DeviceType;
     Tensor & add_out(const Tensor & self, const Tensor & other, const Scalar & alpha, Tensor & out)
     {
         GUARD;
+        Tensor out_c = out.contiguous();
+        dlprim::Tensor y0=todp(out_c);
         double value=0;
-        dlprim::Tensor y0=todp(out);
         auto dev_to_sync = self.device();
         if(isCPUScalar(other,value)) {
             Tensor self_c = self.contiguous();
@@ -186,6 +191,8 @@ using c10::DeviceType;
                                       "y0 = x0 + x1 * w0;",
                                       getExecutionContext(self));
         }
+        if (!out.is_contiguous())
+            out.copy_(out_c);
         sync_if_needed(dev_to_sync);
         return out;
     }
@@ -194,9 +201,14 @@ using c10::DeviceType;
     Tensor & exp_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c=self.contiguous();
-        dlprim::core::pointwise_operation({todp(self_c)},{todp(out)},{},
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
+        
+        dlprim::core::pointwise_operation({todp(self_c)},{todp(out_c)},{},
                     "y0 = exp(x0);",getExecutionContext(self));
+        
+        if (!out.is_contiguous())
+            out.copy_(out_c);
+        
         sync_if_needed(self.device());
         return out;
     }
@@ -205,9 +217,14 @@ using c10::DeviceType;
     Tensor & log_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c=self.contiguous();
-        dlprim::core::pointwise_operation({todp(self_c)},{todp(out)},{},
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
+        
+        dlprim::core::pointwise_operation({todp(self_c)},{todp(out_c)},{},
                     "y0 = log(x0);",getExecutionContext(self));
+        
+        if (!out.is_contiguous())
+            out.copy_(out_c);
+        
         sync_if_needed(self.device());
         return out;
     }
@@ -224,17 +241,20 @@ using c10::DeviceType;
     Tensor & addcmul_out(const Tensor & self, const Tensor & tensor1, const Tensor & tensor2, const Scalar & value, Tensor & out)
     {
         GUARD;
-        Tensor  self_c = self.contiguous(),
-                tensor1_c = tensor1.contiguous(), 
-                tensor2_c = tensor2.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous(),
+               tensor1_c = tensor1.contiguous(), tensor2_c = tensor2.contiguous();
+        
         dlprim::Tensor x0=todp(self_c);
         dlprim::Tensor x1=todp(tensor1_c);
         dlprim::Tensor x2=todp(tensor2_c);
-        dlprim::Tensor y0=todp(out);
+        dlprim::Tensor y0=todp(out_c);
         float w0 = value.toDouble();
         dlprim::core::pointwise_operation_broadcast({x0,x1,x2},{y0},{w0},
                                       "y0 = x0 + w0 * x1 * x2;",
                                       getExecutionContext(self));
+        
+        if (!out.is_contiguous())
+            out.copy_(out_c);
         
         sync_if_needed(self.device());
         return out;
@@ -243,13 +263,17 @@ using c10::DeviceType;
     Tensor & comp_out(const Tensor & self, const Scalar & other, Tensor & out,std::string const &op)
     {
         GUARD;
-        Tensor  self_c = self.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
+        
         dlprim::Tensor x0=todp(self_c);
-        dlprim::Tensor y0=todp(out);
+        dlprim::Tensor y0=todp(out_c);
         float w0 = other.toDouble();
         dlprim::core::pointwise_operation_broadcast({x0},{y0},{w0},
                                       "y0 = x0 " + op + " w0 ? 1 : 0;",
                                       getExecutionContext(self));
+        
+        if (!out.is_contiguous())
+            out.copy_(out_c);
         
         sync_if_needed(self.device());
         return out;
@@ -282,10 +306,15 @@ using c10::DeviceType;
     Tensor & neg_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor  self_c = self.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
+        
         dlprim::Tensor x0=todp(self_c);
-        dlprim::Tensor y0=todp(out);
+        dlprim::Tensor y0=todp(out_c);
         dlprim::core::pointwise_operation_broadcast({x0},{y0},{},"y0=-x0;",getExecutionContext(self));
+        
+        if (!out.is_contiguous())
+            out.copy_(out_c);
+        
         sync_if_needed(self.device());
         return out;
     }
@@ -293,10 +322,15 @@ using c10::DeviceType;
     Tensor & reciprocal_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor  self_c = self.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
+        
         dlprim::Tensor x0=todp(self_c);
-        dlprim::Tensor y0=todp(out);
+        dlprim::Tensor y0=todp(out_c);
         dlprim::core::pointwise_operation_broadcast({x0},{y0},{},"y0=1.0/x0;",getExecutionContext(self));
+        
+        if (!out.is_contiguous())
+            out.copy_(out_c);
+        
         sync_if_needed(self.device());
         return out;
     }
@@ -305,12 +339,16 @@ using c10::DeviceType;
     Tensor & sqrt_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
+        
         dlprim::Tensor x0=todp(self_c);
-        dlprim::Tensor y0=todp(out);
+        dlprim::Tensor y0=todp(out_c);
         dlprim::core::pointwise_operation({x0},{y0},{},
                                       "y0 = sqrt(x0);",
                                       getExecutionContext(self));
+        
+        if (!out.is_contiguous())
+            out.copy_(out_c);
         
         sync_if_needed(self.device());
         return out;
@@ -321,9 +359,10 @@ using c10::DeviceType;
     Tensor & div_out(const Tensor & self, const Tensor & other, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
+        
         dlprim::Tensor x0=todp(self_c);
-        dlprim::Tensor y0=todp(out);
+        dlprim::Tensor y0=todp(out_c);
         double value=0;
         if(isCPUScalar(other,value)) {
             dlprim::core::pointwise_operation({x0},{y0},{double(1.0/value)},
@@ -337,6 +376,9 @@ using c10::DeviceType;
                                         "y0 = x0/x1;",
                                         getExecutionContext(self));
         }
+        
+        if (!out.is_contiguous())
+            out.copy_(out_c);
         
         sync_if_needed(self.device());
         return out;
@@ -364,9 +406,11 @@ using c10::DeviceType;
     {
         GUARD;
         double scale=0;
-        Tensor self_c = self.contiguous();
+        
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
+        
         dlprim::Tensor x0=todp(self_c);
-        dlprim::Tensor y0=todp(out);
+        dlprim::Tensor y0=todp(out_c);
 
         if(isCPUScalar(other,scale)) {
             dlprim::core::pointwise_operation({x0},{y0},{float(scale)},
@@ -375,11 +419,16 @@ using c10::DeviceType;
         }
         else {
             Tensor other_c = other.contiguous();
+            
             dlprim::Tensor x1=todp(other_c);
             dlprim::core::pointwise_operation_broadcast({x0,x1},{y0},{},
                                           "y0 = x0*x1;",
                                           getExecutionContext(self));
         }
+        
+        if (!out.is_contiguous())
+            out.copy_(out_c);
+        
         sync_if_needed(self.device());
         return out;
     }
@@ -388,17 +437,20 @@ using c10::DeviceType;
     Tensor & addcdiv_out(const Tensor & self, const Tensor & tensor1, const Tensor & tensor2, const Scalar & value, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.contiguous(),
-               tensor1_c = tensor1.contiguous(),
-               tensor2_c = tensor2.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous(),
+               tensor1_c = tensor1.contiguous(), tensor2_c = tensor2.contiguous();
+        
         dlprim::Tensor x0 = todp(self_c);
         dlprim::Tensor x1 = todp(tensor1_c);
         dlprim::Tensor x2 = todp(tensor2_c);
-        dlprim::Tensor y0 = todp(out);
+        dlprim::Tensor y0 = todp(out_c);
         float w0 = value.toDouble();
         dlprim::core::pointwise_operation_broadcast({x0,x1,x2},{y0},{w0},
                                       "y0 = x0 + w0 * (x1/x2);",
                                       getExecutionContext(self));
+        
+        if (!out.is_contiguous())
+            out.copy_(out_c);
 
         sync_if_needed(self.device());
         return out;
@@ -407,19 +459,23 @@ using c10::DeviceType;
     // {"schema": "aten::threshold_backward.grad_input(Tensor grad_output, Tensor self, Scalar threshold, *, Tensor(a!) grad_input) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & threshold_backward_out(const Tensor & grad_output, const Tensor & self, const Scalar & threshold, Tensor & grad_input)
     {
-        GUARD;
-        Tensor grad_output_c = grad_output.contiguous(),
-               self_c = self.contiguous();
+        GUARD; 
+        Tensor self_c = self.contiguous(),
+               grad_input_c = grad_input.contiguous(),
+               grad_output_c = grad_output.contiguous();
+               
         dlprim::Tensor dy=todp(grad_output_c);
-        dlprim::Tensor dx=todp(grad_input);
+        dlprim::Tensor dx=todp(grad_input_c);
         dlprim::Tensor Y=todp(self_c);
         float th = threshold.toDouble();
         dlprim::core::pointwise_operation({Y,dy},{dx},{th},"y0 = (x0 > w0) ? x1 : 0;",getExecutionContext(self));
+        
+        if(!grad_input.is_contiguous())
+            grad_input.copy_(grad_input_c);
+        
         sync_if_needed(self.device());
         return grad_input;
     }
-
-
 
     std::pair<dlprim::Shape,dlprim::Shape> squeeze_dim(dlprim::Shape s,OptionalIntArrayRef odim,bool keepdim)
     {
@@ -461,13 +517,14 @@ using c10::DeviceType;
         return std::make_pair(full_shape,squeezed_shape);
     }
 
-    Tensor & sum_mean_out(const Tensor & self, OptionalIntArrayRef dim, bool keepdim, c10::optional<ScalarType> /*dtype*/, Tensor & out,bool mean)
+    Tensor & sum_mean_out(const Tensor & self, OptionalIntArrayRef dim, bool keepdim, c10::optional<ScalarType> /*dtype*/, Tensor & out, bool mean)
     {
         GUARD;
-        Tensor self_c = self.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
+        
         dlprim::Tensor X = todp(self_c);
         auto r = squeeze_dim(X.shape(),dim,keepdim);
-        dlprim::Tensor Y = todp(out);
+        dlprim::Tensor Y = todp(out_c);
         TORCH_CHECK(r.second == Y.shape(),"Invalid output shape");
         Y.reshape(r.first);
 
@@ -485,6 +542,9 @@ using c10::DeviceType;
 
         WSGuard wsg(op->workspace(),self.device());
         op->enqueue({X},{Y},wsg.ws,{},{scale},{0},q);
+        
+        if (!out.is_contiguous())
+            out.copy_(out_c);
 
         sync_if_needed(self.device());
         return out;
@@ -510,7 +570,8 @@ using c10::DeviceType;
     Tensor hardtanh(Tensor const &self, const Scalar & min_val, const Scalar & max_val)
     {
         GUARD;
-        dlprim::Tensor X=todp(self);
+        Tensor self_c = self.contiguous();
+        dlprim::Tensor X = todp(self_c);
         Tensor out = new_tensor_as(X.shape(),self);
         dlprim::Tensor Y(todp(out));
         double w0 = min_val.toDouble();
@@ -525,10 +586,13 @@ using c10::DeviceType;
     Tensor & hardtanh_(Tensor & self, const Scalar & min_val, const Scalar & max_val)
     {
         GUARD;
-        dlprim::Tensor X=todp(self);
+        Tensor self_c = self.contiguous();
+        dlprim::Tensor X=todp(self_c);
         double w0 = min_val.toDouble();
         double w1 = max_val.toDouble();
         dlprim::core::pointwise_operation({X},{X},{w0,w1},"y0=max(w0,min(w1,x0));",getExecutionContext(self));
+        if(!self.is_contiguous())
+            self.copy_(self_c);
         sync_if_needed(self.device());
         return self;
     }
@@ -537,8 +601,9 @@ using c10::DeviceType;
     Tensor hardtanh_backward(const Tensor & grad_output, const Tensor & self, const Scalar & min_val, const Scalar & max_val)
     {
         GUARD;
+        Tensor self_c = self.contiguous();
+        dlprim::Tensor X  = todp(self_c);
         dlprim::Tensor dY = todp(grad_output);
-        dlprim::Tensor X  = todp(self);
         Tensor result = new_tensor_as(X.shape(),self);
         dlprim::Tensor dX = todp(result);
         double w0 = min_val.toDouble();
@@ -565,10 +630,15 @@ using c10::DeviceType;
     Tensor & abs_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
+        
         dlprim::Tensor x=todp(self_c);
-        dlprim::Tensor y=todp(out);
+        dlprim::Tensor y=todp(out_c);
         dlprim::core::pointwise_operation({x},{y},{},"y0 = x0 < 0 ? -x0 : x0;",getExecutionContext(self));
+        
+        if (!out.is_contiguous())
+            out.copy_(out_c);
+        
         sync_if_needed(self.device());
         return out;
     }
@@ -577,16 +647,21 @@ using c10::DeviceType;
     Tensor & sgn_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
+        
         dlprim::Tensor x=todp(self_c);
-        dlprim::Tensor y=todp(out);
+        dlprim::Tensor y=todp(out_c);
         dlprim::core::pointwise_operation({x},{y},{},"y0 = x0 < 0 ? -1 : (x0 > 0 ? 1 : 0) ;",getExecutionContext(self));
+        
+        if (!out.is_contiguous())
+            out.copy_(out_c);
+        
         sync_if_needed(self.device());
         return out;
     }
 
     template<typename TL>
-    Tensor &cat_internal(TL const &tensors, int64_t dim, Tensor &out,bool reuse)
+    Tensor &cat_internal(TL const &tensors, int64_t dim, Tensor &out, bool reuse)
     {
         GUARD;
         std::vector<dlprim::Tensor> list;
@@ -613,9 +688,11 @@ using c10::DeviceType;
         }
         ref[dim]=total_shape;
         dlprim::Tensor Y;
+        Tensor out_c;
         if(reuse) {
-            Y = todp(out);
-            TORCH_CHECK(Y.shape() == ref);
+            out_c = out.contiguous();
+            Y = todp(out_c);
+            TORCH_CHECK(Y.shape() == ref,"Output shape is not correct for concatenation");
         }
         else {
             out = new_tensor_as(ref,ref_tensor);
@@ -634,6 +711,10 @@ using c10::DeviceType;
                                       0.0,q);
             pos += slice;
         }
+        
+        if (reuse && !out.is_contiguous())
+            out.copy_(out_c);
+        
         sync_if_needed(ref_tensor.device());
         return out;
     }
@@ -661,9 +742,14 @@ using c10::DeviceType;
     Tensor & hardswish_(Tensor & self)
     {
         GUARD;
+        
         Tensor self_c = self.contiguous();
         dlprim::Tensor x=todp(self_c);
         dlprim::core::pointwise_operation({x},{x},{},"y0 = x0 <= -3 ? 0 : (x0>=3 ? x0 : x0*(x0+3)/6);",getExecutionContext(self));
+        
+        if (!self.is_contiguous())
+            self.copy_(self_c);
+        
         sync_if_needed(self.device());
         return self;
     }
@@ -671,10 +757,15 @@ using c10::DeviceType;
     Tensor & hardsigmoid_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
+        
         dlprim::Tensor x=todp(self_c);
-        dlprim::Tensor y=todp(out);
+        dlprim::Tensor y=todp(out_c);
         dlprim::core::pointwise_operation({x},{y},{},"y0 = x0 <= -3 ? 0 : (x0>=3 ? 1 : x0/6 + 0.5);",getExecutionContext(self));
+        
+        if (!out.is_contiguous())
+            out.copy_(out_c);
+        
         sync_if_needed(self.device());
         return out;
     }
@@ -682,12 +773,19 @@ using c10::DeviceType;
     Tensor & hardsigmoid_backward_out(const Tensor & grad_output, const Tensor & self, Tensor & grad_input)
     {
         GUARD;
-        Tensor self_c = self.contiguous();
+        Tensor self_c = self.contiguous(),
+               grad_input_c = grad_input.contiguous(),
+               grad_output_c = grad_output.contiguous();
+        
         dlprim::Tensor x=todp(self_c);
-        dlprim::Tensor dx=todp(grad_input);
-        dlprim::Tensor dy=todp(grad_output);
+        dlprim::Tensor dx=todp(grad_input_c);
+        dlprim::Tensor dy=todp(grad_output_c);
 
         dlprim::core::pointwise_operation({x,dy},{dx},{},"y0 = (-3 < x0 && x0 < 3) ? x1 / 6 : 0;",getExecutionContext(self));
+        
+        if(!grad_input.is_contiguous())
+            grad_input.copy_(grad_input_c);
+        
         sync_if_needed(self.device());
         return grad_input;
     }
@@ -696,10 +794,14 @@ using c10::DeviceType;
     Tensor hardswish_backward(const Tensor & grad_output, const Tensor & self)
     {
         GUARD;
-        dlprim::Tensor dy=todp(grad_output);
+        Tensor grad_output_c = grad_output.contiguous();
+        dlprim::Tensor dy=todp(grad_output_c);
+        
         Tensor out = new_tensor_as(dy.shape(),grad_output);
         dlprim::Tensor dx=todp(out);
-        dlprim::Tensor x =todp(self);
+        
+        Tensor self_c = self.contiguous();
+        dlprim::Tensor x =todp(self_c);
         dlprim::core::pointwise_operation({x,dy},{dx},{},
             R"xxx(
                 if (x0 < -3) {
@@ -719,10 +821,15 @@ using c10::DeviceType;
     Tensor & sigmoid_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
+        
         dlprim::Tensor x=todp(self_c);
-        dlprim::Tensor y=todp(out);
+        dlprim::Tensor y=todp(out_c);
         dlprim::core::activation_forward(x,y,dlprim::StandardActivations::sigmoid,getExecutionContext(self));
+        
+        if (!out.is_contiguous())
+            out.copy_(out_c);
+        
         sync_if_needed(self.device());
         return out;
     }
@@ -731,9 +838,12 @@ using c10::DeviceType;
     {
         GUARD;
         Tensor self_c = self.contiguous();
+        
         dlprim::Tensor x=todp(self_c);
         Tensor out = new_tensor_as(x.shape(),self);
+        
         dlprim::Tensor y=todp(out);
+        
         dlprim::core::activation_forward(x,y,dlprim::StandardActivations::sigmoid,getExecutionContext(self));
         sync_if_needed(self.device());
         return out;
@@ -743,10 +853,13 @@ using c10::DeviceType;
     {
         GUARD;
         Tensor self_c = self.contiguous();
+        
         dlprim::Tensor X=todp(self_c);
         dlprim::core::activation_forward(X,X,dlprim::StandardActivations::sigmoid,getExecutionContext(self));
+        
         if(!self.is_contiguous())
-            self.copy_(self_c);
+          self.copy_(self_c);
+        
         sync_if_needed(self.device());
         return self;
     }
@@ -755,11 +868,19 @@ using c10::DeviceType;
     Tensor & sigmoid_backward_out(const Tensor & grad_output, const Tensor & output, Tensor & grad_input)
     {
         GUARD;
-        Tensor output_c = output.contiguous();
+        Tensor output_c = output.contiguous(),
+               grad_output_c = grad_output.contiguous(),
+               grad_input_c  = grad_input.contiguous();
+               
         dlprim::Tensor y=todp(output_c);
-        dlprim::Tensor dy=todp(grad_output);
-        dlprim::Tensor dx=todp(grad_input);
+        dlprim::Tensor dy=todp(grad_output_c);
+        
+        dlprim::Tensor dx=todp(grad_input_c);
         dlprim::core::activation_backward(dx,dy,y,dlprim::StandardActivations::sigmoid,0,getExecutionContext(grad_output));
+        
+        if(!grad_input.is_contiguous())
+            grad_input.copy_(grad_input_c);
+        
         sync_if_needed(grad_output.device());
         return grad_input;
     }
@@ -768,10 +889,15 @@ using c10::DeviceType;
     Tensor & tanh_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
+        
         dlprim::Tensor x=todp(self_c);
-        dlprim::Tensor y=todp(out);
+        dlprim::Tensor y=todp(out_c);
         dlprim::core::activation_forward(x,y,dlprim::StandardActivations::tanh,getExecutionContext(self));
+        
+        if (!out.is_contiguous())
+            out.copy_(out_c);
+        
         sync_if_needed(self.device());
         return out;
     }
@@ -779,13 +905,19 @@ using c10::DeviceType;
     // {"schema": "aten::tanh_backward.grad_input(Tensor grad_output, Tensor output, *, Tensor(a!) grad_input) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & tanh_backward_out(const Tensor & grad_output, const Tensor & output, Tensor & grad_input)
     {
-        GUARD;
-        Tensor  grad_output_c = grad_output.contiguous(),
-                output_c = output.contiguous();
+        GUARD;                
+        Tensor grad_input_c  = grad_input.contiguous(),
+               grad_output_c = grad_output.contiguous(),
+               output_c      = output.contiguous();
+                
         dlprim::Tensor dY=todp(grad_output_c);
         dlprim::Tensor Y=todp(output_c);
-        dlprim::Tensor dX=todp(grad_input);
+        dlprim::Tensor dX=todp(grad_input_c);
         dlprim::core::activation_backward(dX,dY,Y,dlprim::StandardActivations::tanh,0.0,getExecutionContext(grad_output));
+        
+        if(!grad_input.is_contiguous())
+            grad_input.copy_(grad_input_c);
+        
         sync_if_needed(grad_output.device());
         return grad_input;
 }
@@ -794,10 +926,15 @@ using c10::DeviceType;
     Tensor & silu_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
+        
         dlprim::Tensor x=todp(self_c);
         dlprim::Tensor y=todp(out);
         dlprim::core::pointwise_operation({x},{y},{},"y0 = x0 / (1 + exp(-x0));",getExecutionContext(self));
+        
+        if (!out.is_contiguous())
+            out.copy_(out_c);
+        
         sync_if_needed(self.device());
         return out;
     }
@@ -805,9 +942,11 @@ using c10::DeviceType;
     // {"schema": "aten::silu_backward.grad_input(Tensor grad_output, Tensor self, *, Tensor(a!) grad_input) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & silu_backward_out(const Tensor & grad_output, const Tensor & self, Tensor & grad_input)
     {
-        GUARD;
-        Tensor self_c = self.contiguous(),
-               grad_output_c = grad_output.contiguous();
+        GUARD; 
+        Tensor grad_output_c = grad_output.contiguous(),
+               grad_input_c  = grad_input.contiguous(),
+               self_c = self.contiguous();
+               
         dlprim::Tensor x=todp(self_c);
         dlprim::Tensor dy=todp(grad_output_c);
         dlprim::Tensor dx=todp(grad_input);
@@ -817,6 +956,10 @@ using c10::DeviceType;
                 y0 = x1 * y0 * ( 1 + x0 * (1 - y0));
             )xxx",
             getExecutionContext(self));
+        
+        if(!grad_input.is_contiguous())
+            grad_input.copy_(grad_input_c);
+        
         sync_if_needed(self.device());
         return grad_input;
     }
@@ -851,10 +994,15 @@ using c10::DeviceType;
     {
         GUARD;
         double slope = negative_slope.to<double>();
-        Tensor self_c = self.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
+        
         dlprim::Tensor x=todp(self_c);
-        dlprim::Tensor y=todp(out);
+        dlprim::Tensor y=todp(out_c);
         dlprim::core::pointwise_operation({x},{y},{slope},"y0 = x0 > 0 ? x0 : w0 * x0;",getExecutionContext(self));
+        
+        if (!out.is_contiguous())
+            out.copy_(out_c);
+        
         sync_if_needed(self.device());
         return out;
     }
@@ -864,11 +1012,18 @@ using c10::DeviceType;
     {
         GUARD;
         double slope = negative_slope.to<double>();
-        Tensor self_c = self.contiguous(),grad_output_c = grad_output.contiguous();
+        Tensor self_c = self.contiguous(),
+               grad_input_c  = grad_input.contiguous(),
+               grad_output_c = grad_output.contiguous();
+        
         dlprim::Tensor y=todp(self_c);
         dlprim::Tensor dy=todp(grad_output_c);
-        dlprim::Tensor dx=todp(grad_input);
+        dlprim::Tensor dx=todp(grad_input_c);
         dlprim::core::pointwise_operation({y,dy},{dx},{slope},"y0 = x0 > 0 ? x1 : w0 * x1;",getExecutionContext(self));
+        
+        if(!grad_input.is_contiguous())
+            grad_input.copy_(grad_input_c);
+        
         sync_if_needed(self.device());
         return grad_input;
     }
@@ -877,9 +1032,10 @@ using c10::DeviceType;
     Tensor & argmax_out(const Tensor & self, c10::optional<int64_t> dim, bool keepdim, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
+        
         dlprim::Tensor X = todp(self_c);
-        dlprim::Tensor Yind = todp(out);
+        dlprim::Tensor Yind = todp(out_c);
         std::vector<int64_t> dims;
         if(dim) {
             dims.push_back(*dim);
@@ -915,16 +1071,19 @@ using c10::DeviceType;
                     );
         WSGuard ws_guard(op->workspace(),self.device());
         op->enqueue({X},{Yval,Yind},ws_guard.ws,{},{1,1},{0,0},q);
+        
+        if (!out.is_contiguous())
+            out.copy_(out_c);
 
         sync_if_needed(self.device());
         return out;
     }
     
-    static Tensor min_or_max(const Tensor & self,bool is_min)
+    static Tensor min_or_max(const Tensor & self, bool is_min)
     {
         GUARD;
-        Tensor self_cont = self.contiguous();
-        dlprim::Tensor X = todp(self_cont);
+        Tensor self_c = self.contiguous();
+        dlprim::Tensor X = todp(self_c);
         Tensor result = new_tensor_as(dlprim::Shape(),self);
         dlprim::Tensor Y = todp(result);
         std::string y0 = dlprim::data_type_to_opencl_numeric_limit(X.dtype(),(is_min ? dlprim::dt_max_val : dlprim::dt_min_val));
@@ -940,6 +1099,9 @@ using c10::DeviceType;
                     );
         WSGuard ws_guard(op->workspace(),self.device());
         op->enqueue({X},{Y},ws_guard.ws,{},{1},{0},q);
+        
+        if (!self.is_contiguous())
+            self.copy_(self_c);
 
         sync_if_needed(self.device());
         return result;
@@ -961,8 +1123,8 @@ using c10::DeviceType;
     Tensor dot(const Tensor & self, const Tensor & tensor)
     {
         GUARD;
-        Tensor self_c = self.contiguous();
-        Tensor tensor_c = tensor.contiguous();
+        Tensor self_c = self.contiguous(), tensor_c = tensor.contiguous();
+        
         dlprim::Tensor x0=todp(self_c);
         dlprim::Tensor x1=todp(tensor_c);
         Tensor result = new_tensor_as(dlprim::Shape(),self_c);
@@ -988,12 +1150,16 @@ using c10::DeviceType;
     Tensor & ne_out(const Tensor & self, const Scalar & other, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
+        
         dlprim::Tensor x(todp(self_c));
-        dlprim::Tensor y(todp(out));
+        dlprim::Tensor y(todp(out_c));
         dlprim::core::pointwise_operation_broadcast({x},{y},{other.to<double>()},{x.dtype()},
                     "y0 = x0 != w0;", 
                     getExecutionContext(self));
+        
+        if (!out.is_contiguous())
+            out.copy_(out_c);
 
         sync_if_needed(self.device());
         return out;
@@ -1004,14 +1170,18 @@ using c10::DeviceType;
     Tensor & ne_out_tensor(const Tensor & self, const Tensor & other, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.contiguous();
-        Tensor other_c = other.contiguous();
+        Tensor self_c  = self.contiguous(), out_c = out.contiguous(),
+               other_c = other.contiguous();
+        
         dlprim::Tensor x0(todp(self_c));
         dlprim::Tensor x1(todp(other_c));
-        dlprim::Tensor y(todp(out));
+        dlprim::Tensor y(todp(out_c));
         dlprim::core::pointwise_operation_broadcast({x0,x1},{y},{},
                     "y0 = x0 != x1;", 
                     getExecutionContext(self_c));
+        
+        if (!out.is_contiguous())
+            out.copy_(out_c);
 
         sync_if_needed(self.device());
         return out;
@@ -1022,12 +1192,16 @@ using c10::DeviceType;
     Tensor & eq_out(const Tensor & self, const Scalar & other, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
+        
         dlprim::Tensor x(todp(self_c));
-        dlprim::Tensor y(todp(out));
+        dlprim::Tensor y(todp(out_c));
         dlprim::core::pointwise_operation_broadcast({x},{y},{other.to<double>()},{x.dtype()},
                     "y0 = x0 == w0;",
                     getExecutionContext(self));
+        
+        if (!out.is_contiguous())
+            out.copy_(out_c);
 
         sync_if_needed(self.device());
         return out;
@@ -1038,9 +1212,10 @@ using c10::DeviceType;
     Tensor & eq_out_tensor(const Tensor & self, const Tensor & other, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.contiguous();
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
+        
         dlprim::Tensor x0(todp(self_c));
-        dlprim::Tensor y(todp(out));
+        dlprim::Tensor y(todp(out_c));
         double value = 0;
         if(isCPUScalar(other,value)) {
             dlprim::core::pointwise_operation_broadcast({x0},{y},{value},{x0.dtype()},
@@ -1049,11 +1224,15 @@ using c10::DeviceType;
         }
         else {
             Tensor other_c = other.contiguous();
+            
             dlprim::Tensor x1(todp(other_c));
             dlprim::core::pointwise_operation_broadcast({x0,x1},{y},{},
                     "y0 = x0 == x1;", 
                     getExecutionContext(self));
         }
+        
+        if (!out.is_contiguous())
+            out.copy_(out_c);
 
         sync_if_needed(self.device());
         return out;
@@ -1063,13 +1242,18 @@ using c10::DeviceType;
     Tensor & bitwise_and_out(const Tensor & self, const Tensor & other, Tensor & out)
     {
         GUARD;
-        Tensor self_c=self.contiguous();
-        Tensor other_c = other.contiguous();
-        dlprim::Tensor x0(todp(self_c)),x1(todp(other_c)),y0(todp(out));
+        Tensor self_c  = self.contiguous(), out_c = out.contiguous(),
+               other_c = other.contiguous();
+        
+        dlprim::Tensor x0(todp(self_c)),x1(todp(other_c)),y0(todp(out_c));
         dlprim::core::pointwise_operation_broadcast(
                 {x0,x1},{y0},{},
                 (self.dtype() == c10::kBool ? "y0 = x0 && x1;" : "y0 = x0 & x1;"),
                 getExecutionContext(self));
+        
+        if (!out.is_contiguous())
+            out.copy_(out_c);
+        
         sync_if_needed(self.device());
         return out;
     }
@@ -1078,9 +1262,9 @@ using c10::DeviceType;
     Tensor & clamp_out(const Tensor & self, const c10::optional<Scalar> & min, const c10::optional<Scalar> & max, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.contiguous();
-        dlprim::Tensor Y = todp(out);
-        dlprim::Tensor X = todp(self);
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
+        dlprim::Tensor Y = todp(out_c);
+        dlprim::Tensor X = todp(self_c);
         auto q = getExecutionContext(self);
         if(min && max)
             dlprim::core::pointwise_operation({X},{Y},{min->to<double>(),max->to<double>()},"y0 = max(w0,min(w1,x0));",q);
@@ -1090,6 +1274,10 @@ using c10::DeviceType;
             dlprim::core::pointwise_operation({X},{Y},{max->to<double>()},"y0 = min(w0,x0);",q);
         else
             dlprim::core::pointwise_operation({X},{Y},{},"y0 = x0;",q);
+        
+        if (!out.is_contiguous())
+            out.copy_(out_c);
+        
         sync_if_needed(self.device());
         return out;
     }
@@ -1098,12 +1286,15 @@ using c10::DeviceType;
     Tensor & clamp_min_out(const Tensor & self, const Scalar & min, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.contiguous();
-        dlprim::Tensor Y = todp(out);
-        dlprim::Tensor X = todp(self);
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
+        dlprim::Tensor Y = todp(out_c);
+        dlprim::Tensor X = todp(self_c);
         auto q = getExecutionContext(self);
         
         dlprim::core::pointwise_operation({X},{Y},{min.to<double>()},"y0 = max(w0,x0);",q);
+        
+        if (!out.is_contiguous())
+            out.copy_(out_c);
         
         sync_if_needed(self.device());
         return out;
@@ -1113,11 +1304,15 @@ using c10::DeviceType;
     Tensor & ceil_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.contiguous();
-        dlprim::Tensor Y = todp(out);
-        dlprim::Tensor X = todp(self);
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
+        dlprim::Tensor X = todp(self_c);
+        dlprim::Tensor Y = todp(out_c);
         auto q = getExecutionContext(self);
         dlprim::core::pointwise_operation({X},{Y},{},"y0 = ceil(x0);",q);
+        
+        if (!out.is_contiguous())
+            out.copy_(out_c);
+        
         sync_if_needed(self.device());
         return out;
     }
@@ -1126,15 +1321,19 @@ using c10::DeviceType;
     Tensor & gelu_out(const Tensor & self, c10::string_view approximate, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.contiguous();
-        dlprim::Tensor Y = todp(out);
-        dlprim::Tensor X = todp(self);
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
+        dlprim::Tensor Y = todp(out_c);
+        dlprim::Tensor X = todp(self_c);
         auto q = getExecutionContext(self);
         TORCH_CHECK(approximate == "none" || approximate == "tanh","Unsupported variant")
         if(approximate == "tanh")
             dlprim::core::pointwise_operation({X},{Y},{},"y0 = 0.5 * x0 * (1.0 + tanh(0.7978845608028654 * x0 * (1 + 0.044715 * x0 * x0)));",q); // 0.7978845608028654 = sqrt(2/pi)
         else
             dlprim::core::pointwise_operation({X},{Y},{},"y0 = x0 * (1.0 + erf(x0 * 0.7071067811865475  )) / 2.0;",q); // 0.7071067811865475 = 1/sqrt(2)
+            
+        if (!out.is_contiguous())
+            out.copy_(out_c);
+        
         sync_if_needed(self.device());
         return out;
     }
@@ -1143,10 +1342,11 @@ using c10::DeviceType;
     Tensor & gelu_backward_out(const Tensor & grad_output, const Tensor & self, c10::string_view approximate, Tensor & grad_input)
     {
         GUARD;
-        Tensor grad_output_c = grad_output.contiguous();
-        Tensor self_c = self.contiguous();
+        Tensor grad_output_c = grad_output.contiguous(),
+               grad_input_c  = grad_input.contiguous(),
+               self_c = self.contiguous();
 
-        dlprim::Tensor dX = todp(grad_input);
+        dlprim::Tensor dX = todp(grad_input_c);
         dlprim::Tensor dY = todp(grad_output_c);
         dlprim::Tensor X  = todp(self_c);
 
@@ -1179,6 +1379,9 @@ using c10::DeviceType;
             )xxx";
 
         dlprim::core::pointwise_operation({X,dY},{dX},{},eq,q);
+        
+        if (!grad_input.is_contiguous())
+            grad_input.copy_(grad_input_c);
 
         sync_if_needed(self.device());
         return grad_input;

@@ -268,6 +268,37 @@ def test_all(device):
     test_fwd_bwd_op([([2,3,4,30],-1)],torch.nn.LayerNorm((4,30),elementwise_affine=True),device,paramgen = torch.randn)
 
 
+def test_concat(dev):
+    print("Test concat")
+    with torch.no_grad():
+        x1 = torch.randn(5,10,device='cpu')
+        x2 = torch.randn(5,20,device='cpu')
+        y1 = torch.concat((x1,x2),dim=1)
+        y2 = torch.zeros(5,30,device='cpu')
+        torch.concat((x1,x2),dim=1,out=y2)
+        y3s = torch.zeros(10,30,device='cpu')
+        y3 = y3s[::2,:]
+        torch.concat((x1,x2),dim=1,out=y3)
+
+        x1d = x1.to(dev)
+        x2d = x2.to(dev)
+        y1d = torch.concat((x1d,x2d),dim=1)
+        y2d = torch.zeros(5,30,device=dev)
+        torch.concat((x1d,x2d),dim=1,out=y2d)
+        y3sd = y3s.to(dev)
+        y3d = y3sd[::2,:]
+        torch.concat((x1d,x2d),dim=1,out=y3d)
+   
+        for n,d in [('direct',get_diff(y1,y1d)),
+                    ('out',get_diff(y2,y2d)),
+                    ('out/s base',get_diff(y3s,y3sd)),
+                    ('outs/',get_diff(y3,y3d))]:
+            print("%10s %.5f" % (n,d))
+            if d > 0:
+                raise Exception("Failed concat:" + n)
+
+
+
 if __name__ == '__main__': 
     p = argparse.ArgumentParser()
     p.add_argument('--device',default='ocl:0')
@@ -283,3 +314,4 @@ if __name__ == '__main__':
         except:
             r.device = r.device.replace('ocl','privateuseone')
     test_all(r.device)
+    test_concat(r.device)

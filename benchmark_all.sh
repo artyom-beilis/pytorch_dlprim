@@ -22,5 +22,19 @@ for net in  alexnet \
             efficientnet_b4 \
             regnet_y_400mf 
 do
-    echo $net $(timeout 60 python $base/tools/validate_network.py --model=$net --benchmark --batch=$batch --device=$device | tail -n 1 | awk '{print $4}')
+    echo -n "$net "
+    OUTPUT=$(timeout 60 python $base/tools/validate_network.py --model=$net --benchmark --batch=$batch --device=$device)
+    retVal=$?
+    if [ $retVal -eq 124 ]
+    then
+      echo 'Error: Time exceeded!'
+    else
+      if [ $retVal -ne 0 ]
+      then
+        echo -n "Error: "
+        echo "$OUTPUT" | tail -n 1
+      else
+        echo "$OUTPUT" | tail -n 1 | awk '{print $4}'
+      fi
+    fi
 done
