@@ -86,11 +86,13 @@ using c10::DeviceType;
     Tensor _copy_from(const Tensor & self, const Tensor & dst, bool non_blocking)
     {
         GUARD;
+        if(self.numel() == 0 && dst.numel() == 0) {
+            return self;
+        }
 
         if(dst.device().type() == c10::DeviceType::CPU && self.device().type() == OpenCLDeviceType) {
             Tensor c_src = make_contiguous_as_target_type(self,dst);
-
-            dlprim::Tensor t(todp(c_src));
+            dlprim::Tensor t = todp(c_src);
             auto ec = getExecutionContext(self);
             if(dst.is_contiguous()) {
                 void *ptr = dst.data_ptr();
@@ -306,6 +308,27 @@ using c10::DeviceType;
         return res;
     }
 
+    // {"schema": "aten::set_.source_Storage(Tensor(a!) self, Storage source) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & set_source_storage(Tensor & self, Storage source)
+    {
+        auto size = source.nbytes();
+        c10::DispatchKeySet ks = c10::DispatchKeySet{c10::DispatchKey::OpenCL, c10::DispatchKey::AutogradOpenCL};
+        
+        c10::intrusive_ptr<c10::TensorImpl> impl=c10::make_intrusive<c10::TensorImpl>(
+            std::move(source),
+            ks,
+            self.dtype());
+
+        int elem_size = torch::elementSize(torch::typeMetaToScalarType(self.dtype()));
+
+        std::vector<int64_t> vsizes = { int64_t(size / elem_size) };
+        c10::ArrayRef<int64_t> sizes(vsizes.data(),vsizes.size());
+        impl->set_sizes_contiguous(sizes);
+
+        auto new_tensor = torch::Tensor::wrap_tensor_impl(impl);
+        self = std::move(new_tensor);
+        return self;
+    }
     void fallback(const c10::OperatorHandle& op, torch::jit::Stack* stack)
     {
       TORCH_WARN("The operator '", op.schema().operator_name(), "' is not currently ",
@@ -317,6 +340,7 @@ using c10::DeviceType;
 } // namespace dtype
 
 TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
+        m.impl("aten::set_.source_Storage",&ptdlprim::set_source_storage);
       m.impl("aten::empty.memory_format", &ptdlprim::allocate_empty);
       m.impl("aten::empty_strided",&ptdlprim::empty_strided);
       m.impl("aten::_reshape_alias",&ptdlprim::_reshape_alias);

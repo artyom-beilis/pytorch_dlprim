@@ -23,9 +23,9 @@ using c10::DeviceType;
          dlprim::RandomState::sequence_type sequence;
     };
 
-    SeqState get_random_seq(int64_t items,c10::optional<Generator> generator)
+    SeqState get_random_seq(c10::Device const &d,int64_t items,c10::optional<Generator> generator)
     {
-        static dlprim::RandomState state(time(0));
+        dlprim::RandomState &state = CLContextManager::instance().rng_state(d.index());
         size_t rounds = (items +  dlprim::philox::result_items - 1) / dlprim::philox::result_items;
         SeqState s;
         s.seed = state.seed();
@@ -38,7 +38,7 @@ using c10::DeviceType;
     {
         GUARD;
         dlprim::Tensor rnd=todp(self);
-        auto seq = get_random_seq(rnd.shape().total_size(),generator);
+        auto seq = get_random_seq(self.device(),rnd.shape().total_size(),generator);
         dlprim::core::fill_random(rnd,seq.seed,seq.sequence,dlprim::core::rnd_bernoulli,p,0,getExecutionContext(self));
         sync_if_needed(self.device());
         return self;
@@ -49,7 +49,7 @@ using c10::DeviceType;
     {
         GUARD;
         dlprim::Tensor rnd=todp(self);
-        auto seq = get_random_seq(rnd.shape().total_size(),generator);
+        auto seq = get_random_seq(self.device(),rnd.shape().total_size(),generator);
         dlprim::core::fill_random(rnd,seq.seed,seq.sequence,dlprim::core::rnd_normal,mean,std*std,getExecutionContext(self));
         sync_if_needed(self.device());
         return self;
@@ -60,7 +60,7 @@ using c10::DeviceType;
     {
         GUARD;
         dlprim::Tensor rnd=todp(self);
-        auto seq = get_random_seq(rnd.shape().total_size(),generator);
+        auto seq = get_random_seq(self.device(),rnd.shape().total_size(),generator);
         dlprim::core::fill_random(rnd,seq.seed,seq.sequence,dlprim::core::rnd_uniform,from,to,getExecutionContext(self));
         sync_if_needed(self.device());
         return self;

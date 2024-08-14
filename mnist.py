@@ -115,15 +115,7 @@ def main():
 
     device = args.device
     if device.find('ocl')==0:
-        if os.name == 'nt':
-            torch.ops.load_library(r"build\pt_ocl.dll")
-        else:
-            torch.ops.load_library("build/libpt_ocl.so")
-        try:
-            torch.utils.rename_privateuse1_backend('ocl')
-            torch._register_device_module("ocl", object())
-        except:
-            device = device.replace('ocl','privateuseone')
+        import pytorch_ocl
 
     train_kwargs = {'batch_size': args.batch_size}
     test_kwargs = {'batch_size': args.test_batch_size}

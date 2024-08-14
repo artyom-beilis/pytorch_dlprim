@@ -1,5 +1,6 @@
 #pragma once
 #include <dlprim/core/common.hpp>
+#include <dlprim/random.hpp>
 
 #define OpenCL PrivateUse1
 #define AutogradOpenCL AutogradPrivateUse1
@@ -80,6 +81,7 @@ namespace ptdlprim {
         void release(std::unique_ptr<CLMemAllocation> &&mem);
         void prepare(dlprim::Context &ctx);
     };
+    
 
     class CLContextManager {
     public: 
@@ -148,6 +150,10 @@ namespace ptdlprim {
             release(std::move(ptr));
         }
 
+        static dlprim::RandomState &rng_state(int index)
+        {
+            return instance().data_.at(index)->rng;
+        }
         static bool is_ready(int index)
         {
             auto &data = instance().data_;
@@ -156,10 +162,26 @@ namespace ptdlprim {
             return data[index]->ready;
         }
 
+        static void clear(int index)
+        {
+            auto &data = instance().data_;
+            if(index < 0 || index >= int(data.size()) || !data[index] || !data[index]->ready)
+                return;
+            getCommandQueue(index).finish();
+            data[index]->cache.clear();
+        }
+        
+        static bool bad_fork()
+        {
+            instance();
+            return bad_fork_;
+        }
+
     private:
 
         struct DevData {
             bool ready = false; // FIXME make thread safe
+            dlprim::RandomState rng;
             std::string name;
             dlprim::Context ctx;
             dlprim::ExecutionContext queue;
@@ -173,8 +195,21 @@ namespace ptdlprim {
             self.reset(new CLContextManager());
             self->allocate();
         }
+#ifndef WIN32
+        // Called in the forked child if cuda has already been initialized
+        static void forked_child() {
+            bad_fork_ = true;
+        }
+#endif
+        static void poison_fork() {
+#ifndef WIN32
+            static c10::once_flag flag;
+            c10::call_once(flag, [] { pthread_atfork(nullptr, nullptr, forked_child); });
+#endif
+        }
         void allocate()
         {
+            poison_fork();
             char *no_cache=getenv("OPENCL_NO_MEM_CACHE");
             no_cache_ = no_cache && atoi(no_cache);
                 
@@ -222,6 +257,7 @@ namespace ptdlprim {
         
         std::vector<std::unique_ptr<DevData> > data_;
         bool no_cache_;
+        static bool bad_fork_;
     };
 
 

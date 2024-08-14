@@ -1,5 +1,5 @@
 batch=64
-device='privateuseone:0'
+device='ocl:2'
 if [ "$1" == "" ]
 then 
     base=./dlprimitives/
@@ -7,8 +7,12 @@ else
     base="$1"
 fi
 
-for net in  alexnet \
+logname=./$(basename $VIRTUAL_ENV)-test-${device/:/_}.txt
+
+for net in  convnext_small \
+            alexnet \
             resnet18 \
+            resnet50 \
             vgg16 \
             densenet161 \
             inception_v3 \
@@ -37,4 +41,4 @@ do
         echo "$OUTPUT" | tail -n 1 | awk '{print $4}'
       fi
     fi
-done
+done | tee $logname

@@ -232,16 +232,10 @@ if __name__ == '__main__':
     p.add_argument('--eval',default=False,action='store_true')
     p.add_argument('--pretrained',type=bool,default=True)
     r = p.parse_args()
+    ocl=False
     if r.device.find('ocl')==0 or r.device.find('privateuseone') == 0:
-        if os.name == 'nt':
-            torch.ops.load_library(r"build\pt_ocl.dll")
-        else:
-            torch.ops.load_library("build/libpt_ocl.so")
-        try:
-            torch.utils.rename_privateuse1_backend('ocl')
-            torch._register_device_module("ocl", object())
-        except:
-            r.device = r.device.replace('ocl','privateuseone')
+        import pytorch_ocl
+        ocl=True
     if r.all:
         ocl_blacklist = []
         for net in [ 
@@ -278,5 +272,7 @@ if __name__ == '__main__':
                 main(new_r)
             except Exception as e:
                 print("Fail",str(e))
+            if ocl:
+                torch.ocl.empty_cache()
     else:
         main(r)

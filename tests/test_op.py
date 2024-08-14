@@ -297,6 +297,19 @@ def test_concat(dev):
             if d > 0:
                 raise Exception("Failed concat:" + n)
 
+def test_rng(dev):
+    torch.manual_seed(10)
+    x1=torch.randn(10,device=dev)
+    x2=torch.randn(10,device=dev)
+    torch.manual_seed(10)
+    x3=torch.randn(10,device=dev)
+    x1 = x1.cpu()
+    x2 = x2.cpu()
+    x3 = x3.cpu()
+    assert torch.max(torch.abs(x1-x2)).item() > 0
+    assert torch.max(torch.abs(x1-x3)).item() == 0
+    print("RNG Ok")
+
 
 
 if __name__ == '__main__': 
@@ -304,14 +317,7 @@ if __name__ == '__main__':
     p.add_argument('--device',default='ocl:0')
     r = p.parse_args()
     if r.device.find('ocl')==0 or r.device.find('privateuseone')==0:
-        if os.name == 'nt':
-            torch.ops.load_library(r"build\pt_ocl.dll")
-        else:
-            torch.ops.load_library("build/libpt_ocl.so")
-        try:
-            torch.utils.rename_privateuse1_backend('ocl')
-            torch._register_device_module("ocl", object())
-        except:
-            r.device = r.device.replace('ocl','privateuseone')
+        import pytorch_ocl
     test_all(r.device)
     test_concat(r.device)
+    test_rng(r.device)

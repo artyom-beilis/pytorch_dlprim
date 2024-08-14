@@ -90,5 +90,6 @@ namespace ptdlprim {
             printf("GPU max memory allocation size %'15ld creating tables up to %'ld\n",mem_size,rounded_mem_size);
         }
     }
+    bool CLContextManager::bad_fork_ = false;
 } // namespace
 
