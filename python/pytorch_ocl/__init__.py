@@ -50,5 +50,18 @@ class _OCL:
     def empty_cache():
         impl_empty_cache()
 
-torch.utils.rename_privateuse1_backend('ocl')
-torch._register_device_module("ocl", _OCL)
+def synchronize(dev):
+    _OCL.synchronize(Dev)
+
+def manual_seed_all(seed):
+    _OCL.manual_seed_all(seed)
+
+def empty_cache():
+    _OCL.empty_cache()
+
+
+try: 
+    torch.utils.rename_privateuse1_backend('ocl')
+    torch._register_device_module("ocl", _OCL)
+except:
+    pass

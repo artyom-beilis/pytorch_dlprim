@@ -233,9 +233,16 @@ if __name__ == '__main__':
     p.add_argument('--pretrained',type=bool,default=True)
     r = p.parse_args()
     ocl=False
+    cuda=False
+    ocl_direct=False
     if r.device.find('ocl')==0 or r.device.find('privateuseone') == 0:
         import pytorch_ocl
-        ocl=True
+        if r.device.find('privateuseone') == 0:
+            ocl_direct = True
+        else:
+            ocl=True
+    if r.device.find('cuda') == 0:
+        cuda=True
     if r.all:
         ocl_blacklist = []
         for net in [ 
@@ -274,5 +281,9 @@ if __name__ == '__main__':
                 print("Fail",str(e))
             if ocl:
                 torch.ocl.empty_cache()
+            if ocl_direct:
+                pytorch_ocl.empty_cache()
+            if cuda:
+                torch.cuda.empty_cache()
     else:
         main(r)

@@ -297,11 +297,18 @@ def test_concat(dev):
             if d > 0:
                 raise Exception("Failed concat:" + n)
 
+def seed_dev(dev,s):
+    if dev.find('privateuseone') == 0:
+        import pytorch_ocl
+        pytorch_ocl.manual_seed_all(s)
+    else:
+        torch.manual_seed(s)
+
 def test_rng(dev):
-    torch.manual_seed(10)
+    seed_dev(dev,10)
     x1=torch.randn(10,device=dev)
     x2=torch.randn(10,device=dev)
-    torch.manual_seed(10)
+    seed_dev(dev,10)
     x3=torch.randn(10,device=dev)
     x1 = x1.cpu()
     x2 = x2.cpu()

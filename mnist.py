@@ -114,7 +114,7 @@ def main():
     torch.manual_seed(args.seed)
 
     device = args.device
-    if device.find('ocl')==0:
+    if device.find('ocl')==0 or device.find('privateuseone') == 0:
         import pytorch_ocl
 
     train_kwargs = {'batch_size': args.batch_size}
