@@ -32,13 +32,14 @@ if(NOT WIN32)
 	target_compile_features(pt_ocl PRIVATE cxx_std_14)
 endif()	
 # Link against LibTorch
-message("Torch Libs ${TORCH_LIBRARIES}")
-target_link_libraries(pt_ocl "${TORCH_LIBRARIES}" /home/artik/Projects/venv/pt_cpu_2.4/lib/python3.10/site-packages/torch/lib/libtorch_python.so   ${OCL_LIB} dlprim_core)
-#target_link_libraries(pt_ocl "${TORCH_LIBRARIES}"  ${OCL_LIB} dlprim_core)
+target_link_libraries(pt_ocl "${TORCH_LIBRARIES}"  ${OCL_LIB} dlprim_core)
 set_target_properties(pt_ocl PROPERTIES PREFIX "" OUTPUT_NAME "pt_ocl")
 set_target_properties(pt_ocl PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/pytorch_ocl/")
 
 foreach(PYNAME __init__.py)
     configure_file(${CMAKE_CURRENT_SOURCE_DIR}/python/pytorch_ocl/${PYNAME} "${CMAKE_BINARY_DIR}/pytorch_ocl/${PYNAME}" COPYONLY)
+    install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/python/pytorch_ocl/${PYNAME} DESTINATION python/pytorch_ocl)
 endforeach()
+
+install(TARGETS pt_ocl LIBRARY DESTINATION python/pytorch_ocl)
 
