@@ -15,6 +15,7 @@ Following torchvision networks were validated:
 | `alexnet`             |                                           |
 | `resnet18`            |                                           |
 | `resnet50`            |                                           |
+| `convnext_small`      |                                           |
 | `vgg16`               |                                           |
 | `squeezenet1_0`       |                                           |
 | `googlenet`           |                                           |
@@ -42,63 +43,24 @@ DLPrimitves itself is tested on following devies:
 - AMD: rx 6600 xt and in past rx 560
 - Intel: HD530
 
-# Benchmarks
-
-All benchmarks done on gtx 960/4G to get comparison to native cuda speed.
-
-## Test
-
-Test includes copy of data to/from device and forward calculations
-
-| Framework       | alexnet  | resnet18 | resnet50 | vgg16  |  mobilenet |
-|-----------------|----------|----------|----------|--------|------------|
-|pytorch/cuda     | 15.253   | 38.745   | 114.348  | 169.038| 46.110     |     
-|pytorch/opencl   | 22.989   | 50.272   | 167.050  | 258.751| 82.044     |     
-|dlprimitives     | 22.688   | 49.193   | 158.789  | 238.802| 82.080     |     
-|keras/tf2-cuda   | 29.104   | 74.215   | 161.704  | 158.084| 88.851     |     
-|keras/plaidml    | 43.004   | 91.533   | -        | -      | 45.693     |     
-
-## Full Train 
-
-Train includes - io to/from device, zero gadients, forward, backward and optimizer update step. Adam used as optimizer.
-
-
-| Framework       | alexnet  | resnet18 | resnet50 | vgg16  |  mobilenet |
-|-----------------|----------|----------|----------|--------|------------|
-|pytorch/cuda     | 107.108  | 129.456  | 388.951  | N/A    | 177.434    |     
-|pytorch/opencl   | 147.814  | 213.319  | 651.216  | N/A    | 382.590    |     
-|dlprimitives     | 106.033  | 198.092  | 605.541  |1107.756| 344.599    |     
-|keras/tf2-cuda   |  90.005  | 183.447  | 501.362  | 550.063| 322.416    |     
-|keras/plaidml    | 222.166  | 507.116  | -        | -      | 571.438    |     
-
-- vgg16 batch 16 failed to run to to lack of memory on pytorch.
-- some setups with plaidml not tested due to lack of performance/memory
-
-
 
 # Build
 
 ## Changes From previous
 
-Note the build procedure was significantly simplified - so READ again
-
-1. You don't need to build custom pytorch
-2. You should use ocl name for device rather than opencl (see details below)
-
 ## In the nutshell
 
-- Setup pip virtual enviromnet with pytorch 1.13 or nighyly version for CPU
-- Build dlprim\_backend
-- Load shared library in pytorch and start using it.
+- Setup pip virtual enviromnet with _CPU_ version of pytorch. Supported pytorch version are 2.4 and above. Also pytorch 1.13 is supprted.
+- Build dlprim\_backend and install at location you want
+- import `pytorch_ocl` and use `ocl` device instead of `cuda`
 
 ## Now in details
 
-1.  Setup pip virtual environment and install CPU version of pytorch - either 1.13 stable or
-    nightly build of pytorch:: <https://pytorch.org/get-started/locally/>
+1.  Setup pip virtual environment and install CPU version of pytorch - 2.4 is recommended. Pytorch 1.13 is still supported.
 
     Install CPU variant since you don't need CUDA support for OpenCL backend to work.
 
-2.  Make sure you have OpenCL headers and library. It should be `cl2.hpp` - not the old one `cl.hpp`
+2.  Make sure you have OpenCL headers and library. It should include `opencl.hpp` or`cl2.hpp` - not the old one `cl.hpp`
 
 3.  It is strongly recommended to have SQLite3 library and headers avalible as well, it would improve startup times by caching OpenCL kernels on disk.
 
@@ -114,20 +76,24 @@ Make sure you are in the virtual environment
 
 	mkdir build
 	cd build
-	cmake -DCMAKE_PREFIX_PATH=$VIRTUAL_ENV/lib/python3.8/site-packages/torch/share/cmake/Torch ..
+	cmake -DCMAKE_PREFIX_PATH=$VIRTUAL_ENV/lib/python3.10/site-packages/torch/share/cmake/Torch -DCMAKE_INSTALL_PREFIX=/path/to/install/location ..
 	make
+    make install
 
-Note: if you use python version that is different from 3.8 just fix the path above
+Note: if you use python version that is different from 3.10 just fix the path above
 
 Test it runs:
 
+    export PYTHONPATH=/path/to/install/location/python
 	python mnist.py --device ocl:0
 
-Note from previous build procedure, now dlprimitives is submodule of the project. No need to build it separatly.
+If you want to test it in build environment use `export PYTHONPATH=build`
+
+Note: for pytorch 1.13 use privateuseone device instead of ocl
 
 ## Building on Windows
 
-Note: Windows support is even more experimental than Linux support. It was tested using pytorch 1.13, MSVC 2022 using ninja build tool. 
+Note: Windows support is even more experimental than Linux support. It was tested using MSVC 2022 using ninja build tool. 
 
 You will nead OpenCL headers and `x86_64` import library. It is also strongly recommended to get sqlite3
 library. You can download 64 bit def and dll files and headers from official web site. You can convert def file
@@ -147,16 +113,16 @@ Put all the dependencies in a layout you can use with ease, something like:
 
 Make sure you put there 64 release versions only.
 
-Setup virtual pip enviromnet with pytorch. Lets assume you put it into `c:\venv\torch`
+Setup virtual pip environment with pytorch. Lets assume you put it into `c:\venv\torch`
 
-Open "x64 Native Tools Command Prompt for VS 2022" and activate virtual envornment by running `c:\venv\torch\Scripts\activate` 
+Open "x64 Native Tools Command Prompt for VS 2022" and activate virtual environment by running `c:\venv\torch\Scripts\activate` 
 Change current directory to location of the `pytorch_dlprim` project
 
 And run:
 
     mkdir build
 	cd build
-	cmake -DCMAKE_PREFIX_PATH=%VIRTUAL_ENV%\Lib\site-packages\torch\share\cmake\Torch -DCMAKE_BUILD_TYPE=RelWithDebInfo   -DCMAKE_C_COMPILER="cl.exe" -DCMAKE_CXX_COMPILER="cl.exe" -G Ninja -DCMAKE_INCLUDE_PATH=c:\deps\include\include -DCMAKE_LIBRARY_PATH=c:\deps\lib  ..
+	cmake -DCMAKE_PREFIX_PATH=%VIRTUAL_ENV%\Lib\site-packages\torch\share\cmake\Torch -DCMAKE_BUILD_TYPE=RelWithDebInfo   -DCMAKE_C_COMPILER="cl.exe" -DCMAKE_CXX_COMPILER="cl.exe" -G Ninja -DCMAKE_INCLUDE_PATH=c:\deps\include\include -DCMAKE_LIBRARY_PATH=c:\deps\lib  -DCMAKE_INSTALL_PREFIX=c:\path\to\install ..
 	ninja
 	
 Make sure that sqlite3 dll is in the path by calling
@@ -175,28 +141,31 @@ Keep it mind... it is very very initial version that misses a lot of functionali
 So if something fails. It is either not implemented or it is implemented incorrectly
 
 Note: pytorch backend is based on dlprimitives library that actually implements all the operators and
-it is relatievely well tested.
+it is relatively well tested.
 
 If you still want to try:
 
--   Before you begin in python code, load the library `libpt_ocl.so` :
+Import package pytorch_ocl
 
-        torch.ops.load_library("/path/to/libpt_ocl.so")
+    torch.ops.load_library("/path/to/libpt_ocl.so")
 	
-	Or on Windows
-	
-	    torch.ops.load_library("/path/to/pt_ocl.dll")
-		
-	It enables useing opencl devices as `privateuseone` device.
-		
-	If you use nighly version `>= 1.14` you can rename `privateuseone` device to `ocl`
-	
-        torch.utils.rename_privateuse1_backend('ocl')
+Keep in mind you may have several OpenCL devices. Refer to `clinfo --list` to list
+of the devices and their order. Now instead of calling `something.to('cuda')` you call `something.to('ocl:0')` or 
+`something.to('privateuseone:0' for pytorch 1.13)` or another `ocl:1` etc.
 
-    Keep in mind you may have several. Refer to `clinfo --list` to list
-    of the devices and their order. Now instead of calling `something.to('cuda')` you call `something.to('ocl:0')` or 
-	`something.to('privateuseone:0')` or another `ocl:1` etc.
 
--   Try to do only essential tasks on GPU, handle preparations and outputs on CPU since many ops may not be implemented
-    for example printing
+## Known Issues
+
+1. Many operators not implemented and there may be fallbacks to CPU. Sometimes it is minor but sometimes it may hamper the performance, some may just fail
+2. When you save/restore the model move it to CPU. Currently there is an issue with loading back saved state dictionary if it was saved from ocl device
+
+
+## `pytorch_ocl` specific API
+
+Some functions specific to `pytorch_ocl`. When using pytorch >= 2.4 they are accessible from `torch.ocl` and `pytorch_ocl`, for 1.13 you must use `pytorch_ocl`
+
+- `torch.ocl.empty_cache()`: Same as `torch.cuda.empty_cache()` remove all cached GPU memory
+- `torch.ocl.synchronize(device=None)`: synchronize all operations queue on the device, if device is None - all of them same as `torch.cuda.synchonize`
+- `torch.ocl.manual_seed_all(seed)`: reset random number generator state. `torch.manual_seed` - it calls automatically for pytorch >= 2.4. Note for pytorch 1.13 you must call `pytorch_ocl.manual_seed_all`
+
 
