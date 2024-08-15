@@ -46,94 +46,7 @@ DLPrimitves itself is tested on following devies:
 
 # Build
 
-## Changes From previous
-
-## In the nutshell
-
-- Setup pip virtual enviromnet with _CPU_ version of pytorch. Supported pytorch version are 2.4 and above. Also pytorch 1.13 is supprted.
-- Build dlprim\_backend and install at location you want
-- import `pytorch_ocl` and use `ocl` device instead of `cuda`
-
-## Now in details
-
-1.  Setup pip virtual environment and install CPU version of pytorch - 2.4 is recommended. Pytorch 1.13 is still supported.
-
-    Install CPU variant since you don't need CUDA support for OpenCL backend to work.
-
-2.  Make sure you have OpenCL headers and library. It should include `opencl.hpp` or`cl2.hpp` - not the old one `cl.hpp`
-
-3.  It is strongly recommended to have SQLite3 library and headers avalible as well, it would improve startup times by caching OpenCL kernels on disk.
-
-4. Clone The repository
-
-        git clone --recurse-submodules https://github.com/artyom-beilis/pytorch_dlprim.git
-
-5.  Build the backend.
-
-## Building the on Linux
-
-Make sure you are in the virtual environment
-
-	mkdir build
-	cd build
-	cmake -DCMAKE_PREFIX_PATH=$VIRTUAL_ENV/lib/python3.10/site-packages/torch/share/cmake/Torch -DCMAKE_INSTALL_PREFIX=/path/to/install/location ..
-	make
-    make install
-
-Note: if you use python version that is different from 3.10 just fix the path above
-
-Test it runs:
-
-    export PYTHONPATH=/path/to/install/location/python
-	python mnist.py --device ocl:0
-
-If you want to test it in build environment use `export PYTHONPATH=build`
-
-Note: for pytorch 1.13 use privateuseone device instead of ocl
-
-## Building on Windows
-
-Note: Windows support is even more experimental than Linux support. It was tested using MSVC 2022 using ninja build tool. 
-
-You will nead OpenCL headers and `x86_64` import library. It is also strongly recommended to get sqlite3
-library. You can download 64 bit def and dll files and headers from official web site. You can convert def file
-to import library by running `lib /def:sqlite3.def /out:sqlite3.lib /machine:x64`
-
-Put all the dependencies in a layout you can use with ease, something like:
-
-    c:\deps
-	c:\deps\include\
-	c:\deps\include\CL\cl2.hpp
-	c:\deps\include\sqlite3.h
-	...
-	c:\deps\lib\
-	c:\deps\lib\OpenCL.lib
-	c:\deps\lib\sqlite3.lib
-	c:\deps\lib\sqlite3.dll
-
-Make sure you put there 64 release versions only.
-
-Setup virtual pip environment with pytorch. Lets assume you put it into `c:\venv\torch`
-
-Open "x64 Native Tools Command Prompt for VS 2022" and activate virtual environment by running `c:\venv\torch\Scripts\activate` 
-Change current directory to location of the `pytorch_dlprim` project
-
-And run:
-
-    mkdir build
-	cd build
-	cmake -DCMAKE_PREFIX_PATH=%VIRTUAL_ENV%\Lib\site-packages\torch\share\cmake\Torch -DCMAKE_BUILD_TYPE=RelWithDebInfo   -DCMAKE_C_COMPILER="cl.exe" -DCMAKE_CXX_COMPILER="cl.exe" -G Ninja -DCMAKE_INCLUDE_PATH=c:\deps\include\include -DCMAKE_LIBRARY_PATH=c:\deps\lib  -DCMAKE_INSTALL_PREFIX=c:\path\to\install ..
-	ninja
-	
-Make sure that sqlite3 dll is in the path by calling
-
-    set PATH=%PATH%;c:\deps\lib	
-	
-Once build is complete go back to previous directory and run mnist example
-
-    cd ..
-	python mnist.py --device=ocl:0
-	
+Read README-build.md
     
 ## How to Use
     
@@ -145,7 +58,7 @@ it is relatively well tested.
 
 If you still want to try:
 
-Import package pytorch_ocl
+Import package `pytorch_ocl`
 
     torch.ops.load_library("/path/to/libpt_ocl.so")
 	
