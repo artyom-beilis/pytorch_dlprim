@@ -44,9 +44,21 @@ DLPrimitves itself is tested on following devies:
 - Intel: HD530
 
 
-# Build
+# Installation
 
-Read README-build.md
+The simplest way is to download `whl` package from release page - builds for Windows and Linux are provided.
+
+Create virtual evironment, install _CPU_ version of pytorch >= 2.4, download `whl` file that corresponds
+to python version, pytorch version and architecture and install it. For example: python 3.10, torch 2.4 on Linux it is:
+
+    pip install pytorch_ocl-0.1.0+torch2.4-cp310-none-linux_x86_64.whl
+
+Now all you need is to import `pytorch_ocl` and now you can use device 'ocl' instead of cuda:
+
+    torch.randn(10,10,device='ocl:0')
+
+If you don't have prebuilt whl file for your enviromnent, you want use latest updates or modify the code,
+please refer to README-build.md
     
 ## How to Use
     
