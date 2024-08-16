@@ -15,6 +15,7 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/dlprimitives/include)
 
 message("  Pytorch libraries ${TORCH_LIBRARIES}")
 message("  Python libraries ${PYTHON_LIBRARIES}")
+message("  Python include ${PYTHON_INCLUDE_DIR}")
 
 if(NOT WIN32)
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O2 -Wall")
@@ -38,7 +39,10 @@ add_library(pt_ocl SHARED
 target_compile_features(pt_ocl PRIVATE cxx_std_17)
 
 # Link against LibTorch
-target_link_libraries(pt_ocl ${TORCH_LIBRARIES} ${PYTHON_LIBRARIES}  ${OCL_LIB} dlprim_core)
+target_link_libraries(pt_ocl ${TORCH_LIBRARIES} ${OCL_LIB} dlprim_core)
+if(WIN32)
+    target_link_libraries(pt_ocl ${PYTHON_LIBRARIES})
+endif()
 set_target_properties(pt_ocl PROPERTIES PREFIX "" OUTPUT_NAME "pt_ocl")
 if(NOT WIN32)
 	set_target_properties(pt_ocl PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/pytorch_ocl/")
