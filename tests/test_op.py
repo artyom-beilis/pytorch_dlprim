@@ -267,6 +267,11 @@ def test_all(device):
     print("LayerNorm Aff")
     test_fwd_bwd_op([([2,3,4,30],-1)],torch.nn.LayerNorm((4,30),elementwise_affine=True),device,paramgen = torch.randn)
 
+    print("Test logit eps")
+    test_fwd([([4,3,5],-1)],lambda x:torch.logit(x,eps=0.1),device)
+
+    print("Test logit")
+    test_fwd([([4,3,5],-1)],lambda x:torch.logit(torch.clamp(x,min=0.1,max=0.9)),device)
 
 def test_concat(dev):
     print("Test concat")

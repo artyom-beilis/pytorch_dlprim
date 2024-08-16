@@ -1387,6 +1387,41 @@ using c10::DeviceType;
         return grad_input;
     }
 
+    // {"schema": "aten::logit.out(Tensor self, float? eps=None, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"} 
+    Tensor & logit_out(const Tensor & self, ::std::optional<double> eps, Tensor & out)
+    {
+        GUARD;
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
+        dlprim::Tensor X = todp(self_c);
+        dlprim::Tensor Y = todp(out_c);
+        auto q = getExecutionContext(self);
+        if(eps) {
+            double e = *eps;
+            dlprim::core::pointwise_operation({X},{Y},{e},
+                "dtype z = min(1-w0,max(w0,x0)); "
+                "y0 = log(z / (z-1)); ",q);
+        }
+        else {
+            dlprim::core::pointwise_operation({X},{Y},{},
+                "y0 = log(x0 / (x0-1));",q);
+        }
+        if(!out.is_contiguous())
+            out.copy_(out_c);
+
+        sync_if_needed(self.device());
+        return out;
+    }
+    // {"schema": "aten::logit(Tensor self, float? eps=None) -> Tensor", "dispatch": "True", "default": "False"}
+    Tensor logit(const Tensor & self, ::std::optional<double> eps)
+    {
+        Tensor self_c = self.contiguous();
+        dlprim::Tensor X = todp(self_c);
+        
+        torch::Tensor result = new_tensor_as(X.shape(),self);
+        logit_out(self_c,eps,result);
+        return result;
+    }
+
     
    
 #if 0 
@@ -1472,6 +1507,8 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::gelu.out",&ptdlprim::gelu_out);
       m.impl("aten::gelu_backward.grad_input",&ptdlprim::gelu_backward_out);
       m.impl("aten::lerp.Scalar_out",&ptdlprim::lerp_out);
+      m.impl("aten::logit.out",&ptdlprim::logit_out);
+      m.impl("aten::logit",&ptdlprim::logit);
       
 }
 
