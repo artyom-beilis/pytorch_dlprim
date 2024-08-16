@@ -50,22 +50,17 @@ Read README-build.md
     
 ## How to Use
     
-Keep it mind... it is very very initial version that misses a lot of functionality and it isn't fully tested yet.
+Keep it mind... it is earky version that misses a lot of functionality and it isn't fully tested yet.
 So if something fails. It is either not implemented or it is implemented incorrectly
 
 Note: pytorch backend is based on dlprimitives library that actually implements all the operators and
 it is relatively well tested.
 
-If you still want to try:
+If you still want to try: import package `pytorch_ocl`
 
-Import package `pytorch_ocl`
-
-    torch.ops.load_library("/path/to/libpt_ocl.so")
-	
 Keep in mind you may have several OpenCL devices. Refer to `clinfo --list` to list
 of the devices and their order. Now instead of calling `something.to('cuda')` you call `something.to('ocl:0')` or 
 `something.to('privateuseone:0' for pytorch 1.13)` or another `ocl:1` etc.
-
 
 ## Known Issues
 
