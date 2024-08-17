@@ -23,16 +23,17 @@ namespace ptdlprim {
 
     class ExecGuard {
     public:
-        ExecGuard(char const *name);
+        static void set_profiling_context(dlprim::ExecutionContext *queue = nullptr);
+        ExecGuard(char const *name,char const *short_name);
         ~ExecGuard();
     private:
         char const *name_;
     };
     
 	#ifdef _MSC_VER 
-	#  define GUARD ExecGuard debug_guard(__FUNCSIG__ );
+	#  define GUARD ExecGuard debug_guard(__FUNCSIG__,__func__);
 	#else
-    #  define GUARD ExecGuard debug_guard(__PRETTY_FUNCTION__);
+    #  define GUARD ExecGuard debug_guard(__PRETTY_FUNCTION__,__func__);
 	#endif
 
     struct CLMemAllocation {
@@ -162,6 +163,17 @@ namespace ptdlprim {
             return data[index]->ready;
         }
 
+        static bool enable_profiling(int device)
+        {
+            if(is_ready(device))
+                return false;
+            if(unsigned(device) >= count())
+                return false;
+            instance().data_.at(device)->enable_profiling = true;
+            return true;
+        }
+        static void start_profiling(int device);
+        static void stop_profiling(int device,std::string const &output);
         static void clear(int index)
         {
             auto &data = instance().data_;
@@ -181,11 +193,13 @@ namespace ptdlprim {
 
         struct DevData {
             bool ready = false; // FIXME make thread safe
+            bool enable_profiling = false;
             dlprim::RandomState rng;
             std::string name;
             dlprim::Context ctx;
             dlprim::ExecutionContext queue;
             CLCache cache;
+            std::shared_ptr<dlprim::TimingData> timing;
         };
 
 
@@ -247,7 +261,7 @@ namespace ptdlprim {
             if(res.ready)
                 return res;
             res.ctx=dlprim::Context(res.name);
-            res.queue = res.ctx.make_execution_context();
+            res.queue = res.ctx.make_execution_context(res.enable_profiling ? CL_QUEUE_PROFILING_ENABLE : 0);
             res.cache.prepare(res.ctx);
             res.ready = true;
             std::cout << "Accessing device #" << i << ":" << res.ctx.name() << std::endl;

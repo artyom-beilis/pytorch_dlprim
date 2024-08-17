@@ -14,10 +14,27 @@ def _device_index(device):
 
 
 class _OCL:
+    class profile:
+        """ Enables profiling for a ocl device and saves result log"""
+        def __init__(self,device,path = None):
+            """ if path is not None profiling is enabled and result is saved in csv format to path"""
+            self._device_id = _device_index(device)
+            self._path = path
+
+        def __enter__(self):
+            if self._path is not None:
+                impl_start_profiling(self._device_id)
+        
+        def __exit__(self, type, value, traceback):
+            if self._path is not None:
+                impl_stop_profiling(self._device_id,self._path)
+
+    def enable_profiling(device):
+        impl_enable_profiling(_device_index(device))
+        
     class device:
         current_device = 0
         def __init__(self, device):
-            print("Device:",device)
             self.idx = _device_index(device)
             self.prev_idx = -1
 

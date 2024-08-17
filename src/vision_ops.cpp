@@ -240,6 +240,10 @@ using c10::DeviceType;
     public:
         static Tensor forward(AutogradContext *ctx,const Tensor & input, const Tensor & weight, const c10::optional<Tensor> & bias)
         {
+            return linear_forward(ctx,input,weight,bias);
+        }
+        static Tensor linear_forward(AutogradContext *ctx,const Tensor & input, const Tensor & weight, const c10::optional<Tensor> & bias)
+        {
             GUARD;
             at::AutoDispatchBelowADInplaceOrView g;
 
@@ -278,6 +282,9 @@ using c10::DeviceType;
             return result;
         }
         static tensor_list backward(AutogradContext *ctx, tensor_list grad_outputs) {
+            return linear_backward(ctx,grad_outputs);
+        }
+        static tensor_list linear_backward(AutogradContext *ctx, tensor_list grad_outputs) {
             GUARD;
             dlprim::Tensor X = todp(ctx->get_saved_variables()[0]);
             dlprim::Tensor W = todp(ctx->get_saved_variables()[1]);
@@ -341,7 +348,12 @@ using c10::DeviceType;
 
     class max_pool2d_cls : public torch::autograd::Function<max_pool2d_cls> {
     public:
-        static torch::Tensor forward(AutogradContext *ctx,torch::Tensor const &self, IntArrayRef kernel_size, IntArrayRef stride, IntArrayRef padding, IntArrayRef dilation, bool ceil_mode) 
+        static torch::Tensor forward(AutogradContext *ctx,torch::Tensor const &self, IntArrayRef kernel_size, IntArrayRef stride, IntArrayRef padding, IntArrayRef dilation, bool ceil_mode)
+        {
+            return max_pool2d_forward(ctx,self,kernel_size,stride,padding,dilation,ceil_mode);
+        }
+
+        static torch::Tensor max_pool2d_forward(AutogradContext *ctx,torch::Tensor const &self, IntArrayRef kernel_size, IntArrayRef stride, IntArrayRef padding, IntArrayRef dilation, bool ceil_mode) 
         {
             GUARD;
             at::AutoDispatchBelowADInplaceOrView g;
@@ -390,6 +402,9 @@ using c10::DeviceType;
             return out;
         }
         static tensor_list backward(AutogradContext *ctx, tensor_list grad_outputs) {
+            return max_pool_2d_backward(ctx,grad_outputs);
+        }
+        static tensor_list max_pool_2d_backward(AutogradContext *ctx, tensor_list grad_outputs) {
             GUARD;
             torch::Tensor grad_output = grad_outputs[0];
             torch::Tensor input = ctx->get_saved_variables()[0];

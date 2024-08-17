@@ -56,6 +56,19 @@ namespace ptdlprim {
             CLContextManager::clear(i);
         }
     }
+
+    bool enable_profiling(int device)
+    {
+        return CLContextManager::enable_profiling(device);
+    }
+    void start_profiling(int device)
+    {
+        CLContextManager::start_profiling(device);
+    }
+    void stop_profiling(int device,std::string log)
+    {
+        CLContextManager::stop_profiling(device,log);
+    }
 }
 
 
@@ -69,4 +82,7 @@ PYBIND11_MODULE(pt_ocl, m) {
     m.def("impl_synchronize_device",&ptdlprim::synchronize_device,"Sychronize device");
     m.def("impl_is_bad_fork",&ptdlprim::is_bad_fork,"True of forked process");
     m.def("impl_empty_cache",&ptdlprim::empty_cache,"Clear all device cache");
+    m.def("impl_enable_profiling",&ptdlprim::enable_profiling,"Internal function use torch.ocl.enable_profiling(device)");
+    m.def("impl_start_profiling",&ptdlprim::start_profiling,"Internal function use torch.ocl.profile");
+    m.def("impl_stop_profiling",&ptdlprim::stop_profiling,"Internal function use torch.ocl.profile");
 }

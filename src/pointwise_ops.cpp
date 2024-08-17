@@ -65,7 +65,7 @@ using c10::DeviceType;
     template<dlprim::StandardActivations Act>
     class act_cls : public torch::autograd::Function<act_cls<Act> > {
     public:
-        static torch::Tensor forward(AutogradContext *ctx, torch::Tensor x) 
+        static torch::Tensor std_activation_forward(AutogradContext *ctx, torch::Tensor x) 
         {
             GUARD;
             at::AutoDispatchBelowADInplaceOrView g;
@@ -80,7 +80,11 @@ using c10::DeviceType;
             sync_if_needed(x.device());
             return result;
         }
-        static tensor_list backward(AutogradContext *ctx, tensor_list grad_outputs) {
+        static torch::Tensor forward(AutogradContext *ctx, torch::Tensor x) 
+        {
+            return std_activation_forward(ctx,x);
+        }
+        static tensor_list std_activation_backward(AutogradContext *ctx, tensor_list grad_outputs) {
             GUARD;
             auto grad_output = grad_outputs[0].contiguous();
             torch::Tensor result = ctx->get_saved_variables()[0];
@@ -92,6 +96,9 @@ using c10::DeviceType;
             sync_if_needed(grad_output.device());
             return {grad_input};
         }
+        static tensor_list backward(AutogradContext *ctx, tensor_list grad_outputs) {
+            return std_activation_backward(ctx,grad_outputs);
+        }
     };
 
     template<dlprim::StandardActivations Act>
@@ -99,44 +106,6 @@ using c10::DeviceType;
         GUARD;
         return act_cls<Act>::apply(x);
     }
-
-#if 0
-    // Don't know how to fix it yet
-    template<dlprim::StandardActivations Act>
-    class act_inplace_cls : public torch::autograd::Function<act_inplace_cls<Act> > {
-    public:
-        static torch::Tensor &forward(AutogradContext *ctx, torch::Tensor &x) 
-        {
-            at::AutoDispatchBelowADInplaceOrView g;
-            TORCH_CHECK(x.is_contiguous(),"OpenCL requireds contiguous output");
-            dlprim::Tensor X = todp(x);
-            ctx->save_for_backward({x});
-            dlprim::ExecutionContext q = getExecutionContext(x);
-            dlprim::core::activation_forward(X,X,Act,q);
-            sync_if_needed(x.device());
-            return x;
-        }
-        static tensor_list backward(AutogradContext *ctx, tensor_list grad_outputs) {
-            TORCH_CHECK(grad_outputs[0].is_contiguous(),"OpenCL requireds contiguous output");
-            auto &grad_output = grad_outputs[0];
-            torch::Tensor result = ctx->get_saved_variables()[0];
-            dlprim::Tensor dy=todp(grad_output);
-            dlprim::Tensor y=todp(result);
-            dlprim::core::activation_backward(dy,dy,y,Act,0.0,getExecutionContext(grad_output));
-            sync_if_needed(grad_output.device());
-            return {grad_output};
-        }
-    };
-
-    template<dlprim::StandardActivations Act>
-    torch::Tensor &act_inplace_autograd(torch::Tensor &x) {
-        return act_inplace_cls<Act>::apply(x);
-    }
-
-#endif
-
-
-
 
     Tensor & mul_scalar_(Tensor & self, const Scalar & other)
     {
