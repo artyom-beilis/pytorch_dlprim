@@ -1391,6 +1391,40 @@ using c10::DeviceType;
         return result;
     }
 
+    // {"schema": "aten::arange.start_out(Scalar start, Scalar end, Scalar step=1, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False")
+    Tensor & arange_out(const Scalar & start, const Scalar & end, const Scalar & step, Tensor & out) 
+    {
+        GUARD;
+        double dstart = start.to<double>();
+        double dend   = end.to<double>();
+        double dstep = step.to<double>();
+        int64_t size = std::ceil((dend - dstart) / dstep);
+        int64_t numel = out.numel();
+        
+        if(numel  != size) {
+            if(numel!=0) {
+                 TORCH_WARN("The number of elements in the out tensor of shape ", out.sizes(),
+                    " is ", numel, " which does not match the computed number of elements ", size,
+                    ". Note that this may occur as a result of rounding error. "
+                    "The out tensor will be resized to a tensor of shape (", size, ",).");
+            }
+            //Tensor tmp = new_tensor_as(dlprim::Shape(size),out);
+            //out = std::move(tmp);
+            out.resize_({size});
+        }
+        Tensor out_c = out.contiguous();
+        dlprim::Tensor Y = todp(out_c);
+        auto q = getExecutionContext(out);
+        dlprim::core::pointwise_operation({},{Y},{dstart,dstep},
+            "y0 = w0 + index*w1;",q);
+        if(!out.is_contiguous())
+            out.copy_(out_c);
+
+        sync_if_needed(out.device());
+        return out;
+    }
+    
+
     
    
 #if 0 
@@ -1478,6 +1512,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::lerp.Scalar_out",&ptdlprim::lerp_out);
       m.impl("aten::logit.out",&ptdlprim::logit_out);
       m.impl("aten::logit",&ptdlprim::logit);
+      m.impl("aten::arange.start_out",&ptdlprim::arange_out);
       
 }
 

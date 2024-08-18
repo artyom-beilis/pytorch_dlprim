@@ -329,6 +329,50 @@ using c10::DeviceType;
         self = std::move(new_tensor);
         return self;
     }
+
+    // {"schema": "aten::resize_(Tensor(a!) self, SymInt[] size, *, MemoryFormat? memory_format=None) -> Tensor(a!)", "dispatch": "True", "default": "False"}    
+    const Tensor & resize_(const Tensor & self, c10::SymIntArrayRef size, ::std::optional<MemoryFormat> memory_format)
+    {
+        if(memory_format) {
+            TORCH_CHECK(*memory_format == MemoryFormat::Contiguous,"resize_ only supports contiguous memory format");
+        }
+        c10::intrusive_ptr<c10::TensorImpl> impl = self.getIntrusivePtr();
+        c10::Storage const &storage = impl->storage();
+        int64_t storage_size = storage.nbytes();
+        at::DataPtr &data = storage.mutable_data_ptr();
+        int64_t new_size = -1;
+
+        std::vector<int64_t> vsizes;
+        for(auto v:size) {
+            if(new_size == -1)
+                new_size = 1;
+            int64_t dim = v.expect_int();
+            new_size*=dim;
+            vsizes.push_back(dim);
+        }
+        c10::ArrayRef<int64_t> sizes(vsizes.data(),vsizes.size());
+
+        dlprim::DataType dt = todp(self.dtype());
+        new_size*=dlprim::size_of_data_type(dt);
+        
+        if(new_size >= storage_size && new_size > 0) {
+            at::DataPtr new_mem = CLContextManager::allocate(self.device(),new_size);
+            if(storage_size > 0) {
+                cl::Buffer dst((cl_mem)new_mem.get(),true);
+                cl::Buffer src((cl_mem)data.get(),true);
+                auto q = getExecutionContext(self);
+                q.queue().enqueueCopyBuffer(src,dst,0,0,storage_size,q.events(),q.event("copy_buffer"));
+                q.finish();
+            } 
+            data = std::move(new_mem);
+            storage.set_nbytes(new_size);
+            sync_if_needed(self.device());
+        }
+        impl->set_sizes_contiguous(sizes);
+        return self;
+    }
+
+
     void fallback(const c10::OperatorHandle& op, torch::jit::Stack* stack)
     {
       TORCH_WARN("The operator '", op.schema().operator_name(), "' is not currently ",
@@ -352,6 +396,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::as_strided",&ptdlprim::as_strided);
       m.impl("aten::_local_scalar_dense",&ptdlprim::_local_scalar_dense);
       m.impl("aten::masked_select",&ptdlprim::masked_select);
+      m.impl("aten::resize_",&ptdlprim::resize_);
 }
 TORCH_LIBRARY_IMPL(_, PrivateUse1, m) {
       m.fallback(torch::CppFunction::makeFromBoxedFunction<&ptdlprim::fallback>());

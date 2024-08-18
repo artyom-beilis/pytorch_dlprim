@@ -277,6 +277,12 @@ def test_all(device):
     print("Test logit")
     test_fwd([([4,3,5],-1)],lambda x:torch.logit(torch.clamp(x,min=0.1,max=0.9)),device)
 
+    print("Test arange out")
+    test_fwd([([10],-1)],lambda x:torch.arange(0,10,out=x),device)
+
+    print("Test arange out empty")
+    test_fwd([([1],-1)],lambda x:torch.arange(0,10,out=x),device)
+
 def test_concat(dev):
     print("Test concat")
     with torch.no_grad():
