@@ -140,11 +140,17 @@ using c10::DeviceType;
         Tensor self_c = self.contiguous();
         dlprim::Tensor x=todp(self_c);
         dlprim::Tensor y=todp(out);
-        TORCH_CHECK(dim==-1 || dim==int(x.shape().size()-1),"Only last dimension is supported for softmax");
+        TORCH_CHECK(dim==-1 || (0<=dim && dim < int(x.shape().size())),"Invalid value of dim");
         if(x.shape().size()!=2) {
-            int N = x.shape()[x.shape().size()-1];
-            int M = x.shape().total_size() / N;
-            auto new_shape = dlprim::Shape(M,N);
+            if(dim == -1)
+                dim = x.shape().size() - 1;
+            int N=1,M=1;
+            int Rd = x.shape()[dim];
+            for(int i=0;i<dim;i++)
+                N*=x.shape()[i];
+            for(int i=dim+1;i<int(x.shape().size());i++)
+                M*=x.shape()[i];
+            auto new_shape = dlprim::Shape(N,Rd,M);
             x.reshape(new_shape);
             y.reshape(new_shape);
         }
@@ -173,11 +179,17 @@ using c10::DeviceType;
         Tensor output_c = output.contiguous(),grad_output_c = grad_output.contiguous();
         dlprim::Tensor y = todp(output_c);
         dlprim::Tensor dy = todp(grad_output_c);
-        TORCH_CHECK(dim==-1 || dim==int(y.shape().size()-1),"Only last dimension is supported for softmax");
+        TORCH_CHECK(dim==-1 || (0<=dim && dim < int(y.shape().size())),"Invalid value of dim");
         if(y.shape().size()!=2) {
-            int N = y.shape()[y.shape().size()-1];
-            int M = y.shape().total_size() / N;
-            auto new_shape = dlprim::Shape(M,N);
+            if(dim == -1)
+                dim = y.shape().size() - 1;
+            int N=1,M=1;
+            int Rd = y.shape()[dim];
+            for(int i=0;i<dim;i++)
+                N*=y.shape()[i];
+            for(int i=dim+1;i<int(y.shape().size());i++)
+                M*=y.shape()[i];
+            auto new_shape = dlprim::Shape(N,Rd,M);
             dx.reshape(new_shape);
             dy.reshape(new_shape);
             y.reshape(new_shape);
