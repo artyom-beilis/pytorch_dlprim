@@ -1,4 +1,5 @@
 #include "CLTensor.h"
+#include "utils.h"
 #include <torch/version.h>
 
 #if TORCH_VERSION_MAJOR <= 1
@@ -77,9 +78,35 @@ private:
     static thread_local Stream s_; 
 } ocl_impl_instance;
 
-
 thread_local Device OCLDevImpl::dt_ = Device(OpenCLDeviceType,0);
 thread_local Stream OCLDevImpl::s_  = Stream(c10::Stream::UNSAFE,Device(OpenCLDeviceType,0),0);
+
+
+class OCLAllocator : public at::Allocator {
+public:
+    at::Device current_device() const
+    {
+        return ocl_impl_instance.getDevice();
+    }
+
+    at::DataPtr allocate(size_t nbytes) override
+    {
+        at::Device device = current_device();
+        return CLContextManager::allocate(device,nbytes);
+    }
+    virtual void copy_data(void* dest, const void* src, std::size_t count) const override
+    {
+        GUARD;
+        at::Device device = current_device();
+        cl::Buffer buf_dst((cl_mem)dest,true);
+        cl::Buffer buf_src((cl_mem)src, true);
+        auto q = getExecutionContext(device);
+        q.queue().enqueueCopyBuffer(buf_src,buf_dst,0,0,count,q.events(),q.event("copy_data"));
+        sync_if_needed(device);
+    }
+} ocl_allocator_instance;
+
+REGISTER_ALLOCATOR(OpenCLDeviceType, &ocl_allocator_instance);
 
 #ifndef DLPRIM_NO_HOOKS_INTERFACE
 struct HooksInterface : public at::PrivateUse1HooksInterface {
