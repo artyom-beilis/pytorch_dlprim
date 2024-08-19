@@ -1,6 +1,7 @@
 #include "CLTensor.h"
 #include "utils.h"
 #include <ATen/native/CPUFallback.h>
+#include <ATen/InferSize.h>
 
 #include <dlprim/core/util.hpp>
 #include <dlprim/core/pointwise.hpp>
@@ -42,7 +43,7 @@ using c10::DeviceType;
         return data;
     }
 
-    Tensor view(const Tensor & self, IntArrayRef size)
+    Tensor view_old(const Tensor & self, IntArrayRef size)
     {
         GUARD;
         torch::Tensor data=at::alias(self);
@@ -67,6 +68,27 @@ using c10::DeviceType;
         }
         c10::IntArrayRef new_size(v.data(),v.size());
         data.getIntrusivePtr()->set_sizes_contiguous(new_size);
+        return data;
+    }
+
+
+    Tensor view(const Tensor & self, c10::IntArrayRef size)
+    {
+        GUARD;
+        //auto size = C10_AS_INTARRAYREF_SLOW(sym_size);
+        auto inferred_size = at::infer_size_dv(size, self.numel());
+        auto stride =
+            at::detail::computeStride(self.sizes(), self.strides(), inferred_size);
+        TORCH_CHECK(
+          stride.has_value(),
+          "view size is "
+          "not compatible with input tensor's size and stride (at least one dimension"
+          " spans across two contiguous subspaces). Use .reshape(...) instead.");
+
+
+        auto stride_value = *stride;
+        Tensor data = at::alias(self);
+        data.getIntrusivePtr()->set_sizes_and_strides(inferred_size,stride_value);
         return data;
     }
 
@@ -172,8 +194,13 @@ using c10::DeviceType;
     Tensor &zero_(Tensor &self)
     {
         GUARD;
+        if(self.numel() == 0)
+            return self;
+        Tensor self_c = self.contiguous();
         dlprim::Tensor t(todp(self));
         dlprim::core::fill_tensor(t,0.0,getExecutionContext(self));
+        if(!self.is_contiguous())
+            self.copy_(self_c);
         return self;
     }
 
@@ -307,26 +334,27 @@ using c10::DeviceType;
         sync_if_needed(self.device());
         return res;
     }
+   
+    // {"schema": "aten::set_.source_Storage_storage_offset(Tensor(a!) self, Storage source, SymInt storage_offset, SymInt[] size, SymInt[] stride=[]) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & set_source_storage_offset(Tensor & self, Storage source, c10::SymInt storage_offset, c10::SymIntArrayRef size, c10::SymIntArrayRef stride)
+    {
+        c10::intrusive_ptr<c10::TensorImpl> impl = self.getIntrusivePtr(); 
+        impl->set_storage_keep_dtype(source);
+        impl->set_sizes_and_strides(size,stride,storage_offset);
+        return self;
+    }
 
     // {"schema": "aten::set_.source_Storage(Tensor(a!) self, Storage source) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & set_source_storage(Tensor & self, Storage source)
     {
+        c10::intrusive_ptr<c10::TensorImpl> impl = self.getIntrusivePtr(); 
         auto size = source.nbytes();
-        c10::DispatchKeySet ks = c10::DispatchKeySet{c10::DispatchKey::OpenCL, c10::DispatchKey::AutogradOpenCL};
-        
-        c10::intrusive_ptr<c10::TensorImpl> impl=c10::make_intrusive<c10::TensorImpl>(
-            std::move(source),
-            ks,
-            self.dtype());
-
+        impl->set_storage_keep_dtype(source);
         int elem_size = torch::elementSize(torch::typeMetaToScalarType(self.dtype()));
-
         std::vector<int64_t> vsizes = { int64_t(size / elem_size) };
         c10::ArrayRef<int64_t> sizes(vsizes.data(),vsizes.size());
         impl->set_sizes_contiguous(sizes);
 
-        auto new_tensor = torch::Tensor::wrap_tensor_impl(impl);
-        self = std::move(new_tensor);
         return self;
     }
 
@@ -362,7 +390,6 @@ using c10::DeviceType;
                 cl::Buffer src((cl_mem)data.get(),true);
                 auto q = getExecutionContext(self);
                 q.queue().enqueueCopyBuffer(src,dst,0,0,storage_size,q.events(),q.event("copy_buffer"));
-                q.finish();
             } 
             data = std::move(new_mem);
             storage.set_nbytes(new_size);
@@ -384,7 +411,8 @@ using c10::DeviceType;
 } // namespace dtype
 
 TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
-        m.impl("aten::set_.source_Storage",&ptdlprim::set_source_storage);
+      m.impl("aten::set_.source_Storage",&ptdlprim::set_source_storage);
+      m.impl("aten::set_.source_Storage_storage_offset",&ptdlprim::set_source_storage_offset);
       m.impl("aten::empty.memory_format", &ptdlprim::allocate_empty);
       m.impl("aten::empty_strided",&ptdlprim::empty_strided);
       m.impl("aten::_reshape_alias",&ptdlprim::_reshape_alias);
