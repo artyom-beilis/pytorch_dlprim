@@ -670,13 +670,22 @@ using c10::DeviceType;
         dlprim::ExecutionContext q(getExecutionContext(ref_tensor));
         dlprim::Context ctx(q);
         
-        dlprim::core::SliceCopy cp(ctx,todp(ref_tensor.dtype()));
 
+        dlprim::core::SliceCopy cp(ctx,todp(out.dtype()));
         for(size_t i=0,pos=0;i<list.size();i++) {
+            Tensor new_tensor;
+            dlprim::Tensor x;
+            // handle casting
+            if(list_c[i].dtype() != out.dtype()) {
+                new_tensor = list_c[i].to(out.dtype());
+                x=todp(new_tensor);
+            }
+            else
+                x=list[i];
             size_t slice = list[i].shape()[dim];
             cp.tensor_slice_copy(dim,slice,
                                       Y,pos,
-                                      list[i],0,
+                                      x,0,
                                       0.0,q);
             pos += slice;
         }
@@ -691,6 +700,7 @@ using c10::DeviceType;
     // {"schema": "aten::cat.out(Tensor[] tensors, int dim=0, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & cat_out(const ITensorListRef & tensors, int64_t dim, Tensor & out)
     {
+        GUARD;
         cat_internal(tensors,dim,out,true);
 		return out;
     }
