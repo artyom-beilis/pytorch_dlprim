@@ -8,6 +8,7 @@
 #include <dlprim/core/conv.hpp>
 #include <dlprim/core/bias.hpp>
 #include <dlprim/core/pool.hpp>
+#include <dlprim/gpu/gemm.hpp>
 
 #include <iostream>
 namespace ptdlprim {
@@ -505,6 +506,85 @@ using c10::DeviceType;
         sync_if_needed(self.device());
         return grad_input;
     }
+
+    static Tensor get_mm_valid_tensor(Tensor const &t,bool &transposed,bool &copied)
+    {
+        auto sizes= t.sizes();
+        auto strides = t.strides();
+        TORCH_CHECK(sizes.size() == 2,"mm requires 2d matrix");
+        TORCH_CHECK(sizes[0] > 0 && sizes[1] > 0,"Invalid matrix size");
+        copied = false;
+        if(t.is_contiguous())  {
+            transposed = false;
+            return t;
+        }
+        if(strides[1] == sizes[0] && strides[0] == 1) {
+            transposed = true;
+            return t;
+        }
+        transposed = false;
+        copied = true;
+        return t.contiguous();
+    }
+    
+     // {"schema": "aten::mm.out(Tensor self, Tensor mat2, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & mm_out(const Tensor & self, const Tensor & mat2, Tensor & out)
+    {
+        GUARD;
+        Tensor A,B,C;
+        bool At=false,Bt=false,Ct=false,Ac,Bc,Cc;
+        A = get_mm_valid_tensor(self,At,Ac);
+        B = get_mm_valid_tensor(mat2,Bt,Bc);
+        C = get_mm_valid_tensor(out, Ct,Cc);
+        if(Ct) {
+            Ct = false;
+            C = C.t();
+            TORCH_CHECK(C.is_contiguous(),"Internal test")
+            A=A.t();
+            B=B.t();
+            At = !At;
+            Bt = !Bt;
+            std::swap(A,B);
+            std::swap(At,Bt);
+        }
+        
+        int M  = A.sizes()[0];
+        int Ka = A.sizes()[1];
+        int N  = B.sizes()[1];
+        int Kb = B.sizes()[0];
+        int Mc = C.sizes()[0];
+        int Nc = C.sizes()[1];
+
+        TORCH_CHECK(M==Mc && N==Nc && Ka == Kb,"Invalid matrix sizes "
+                    "A(" + std::to_string(M) + ","+std::to_string(Ka)+")" + (At?".T":"  ") + 
+                    "*B(" + std::to_string(Kb) + "," + std::to_string(N) +")=" + (Bt?".T":"  ") +
+                    "C("+std::to_string(Mc) + ","+std::to_string(Nc)+")");
+        int K = Ka;
+
+        dlprim::ExecutionContext q(getExecutionContext(self));
+        dlprim::Context ctx(q);
+        
+        cl::Buffer Abuf = buffer_from_tensor(A);
+        int64_t    Aoff = A.storage_offset();
+        cl::Buffer Bbuf = buffer_from_tensor(B);
+        int64_t    Boff = B.storage_offset();
+        cl::Buffer Cbuf = buffer_from_tensor(C);
+        int64_t    Coff = C.storage_offset();
+
+        auto gemm_op = dlprim::gpu::GEMM::get_optimal_gemm(ctx,todp(A.dtype()),At,Bt,M,N,K);
+        gemm_op->gemm(M,N,K,
+                Abuf,Aoff,(At?M:K),
+                Bbuf,Boff,(Bt?K:N),
+                Cbuf,Coff,N,
+                nullptr,0,0,M*N,q);
+        if(Cc)
+            out.copy_(C);
+        sync_if_needed(self.device());
+        return out;
+    }
+
+    
+
 } // namespace
 
 TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
@@ -514,6 +594,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::_adaptive_avg_pool2d_backward",&ptdlprim::_adaptive_avg_pool2d_backward);
       m.impl("aten::avg_pool2d.out",&ptdlprim::avg_pool2d_out);
       m.impl("aten::avg_pool2d_backward.grad_input",&ptdlprim::avg_pool2d_backward_out);
+      m.impl("aten::mm.out",&ptdlprim::mm_out);
 }
 TORCH_LIBRARY_IMPL(aten, AutogradPrivateUse1, m) {
       m.impl("aten::linear",&ptdlprim::linear);

@@ -241,6 +241,8 @@ if __name__ == '__main__':
             ocl_direct = True
         else:
             ocl=True
+    if r.device.find('xpu')==0:
+        import intel_extension_for_pytorch
     if r.device.find('cuda') == 0:
         cuda=True
     if r.all:

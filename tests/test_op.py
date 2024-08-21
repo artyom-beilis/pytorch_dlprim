@@ -153,6 +153,76 @@ def test_fwd_bwd(inputs,call,device,randgen=torch.randn):
         raise Exception("Diff too big")
     
 
+
+def get_mat(D0,D1,d,ind):
+    tr = ind % 2
+    offset = 0 if ind < 2 else 5
+    non_cont = ind >= 4
+    if tr:
+        D0,D1=D1,D0
+    tmp = torch.arange(0,400,device=d,dtype=torch.float32)
+    size = D0*D1
+    if non_cont:
+        size *= 4
+    tmp = tmp[offset:offset+size]
+    if non_cont:
+        tmp = tmp.view(D0*2,D1*2)
+        tmp = tmp[::2,::2]
+    else:
+        tmp = tmp.view(D0,D1)
+    if tr:
+        tmp = tmp.T
+    return tmp
+
+def  test_mm(device):
+    print("Tesing mm")
+    M = 4
+    N = 10
+    K = 6
+    re = 110
+    for Ct in range(6):
+        for At in range(6):
+            for Bt in range(6):
+                for d in ["cpu",device]:
+                    A = get_mat(M,K,d,At)
+                    B = get_mat(K,N,d,Bt)
+                    C = get_mat(M,N,d,Ct)
+                    if False:
+                        a_offset = 0 if At < 2 else 5
+                        b_offset = 0 if Bt < 2 else 5
+                        c_offset = 0 if Ct < 2 else 5
+                        As=[M,K]
+                        Bs=[K,N]
+                        Cs=[M,N]
+
+                        if At % 2 :
+                            As.reverse()
+                        if Bt % 2:
+                            Bs.reverse()
+                        if Ct % 2:
+                            Cs.reverse()
+                        if At<4:
+                            A = torch.arange(0,re,device=d,dtype=torch.float32)[a_offset:M*K+a_offset].view(*As)
+                        else:
+                            A = torch.arange(0,re,device=d,dtype=torch.float32)[a_offset:M*K*4+a_offset].view(As[0]*2,As[1]*2)[::2,::2]
+                        if At % 2:
+                            A = A.T
+                        B = torch.arange(0,re,device=d,dtype=torch.float32)[b_offset:K*N+b_offset].view(*Bs)
+                        if Bt % 2:
+                            B = B.T
+                        C = torch.arange(0,re,device=d,dtype=torch.float32)[c_offset:M*N+c_offset].view(*Cs)
+                        if Ct % 2:
+                            C = C.T
+                    torch.mm(A,B,out=C)
+                    if d == "cpu":
+                        C_ref = C
+                if get_diff(C_ref,C) != 0:
+                    print("Failed for",M,N,K,At,Bt,Ct);
+                    raise Exception("Failure")
+    print("Ok")
+
+    
+
 def test_all(device):
     print("Mean 1d")
     test_fwd_bwd([([2,3,4],-1)],lambda x:torch.mean(x,dim=0,keepdim=True),device)
@@ -343,3 +413,4 @@ if __name__ == '__main__':
     test_all(r.device)
     test_concat(r.device)
     test_rng(r.device)
+    test_mm(r.device)
