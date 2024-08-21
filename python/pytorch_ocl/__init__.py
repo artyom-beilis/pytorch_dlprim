@@ -35,21 +35,23 @@ class _OCL:
     class device:
         current_device = 0
         def __init__(self, device):
-            self.idx = _device_index(device)
-            self.prev_idx = -1
+            pass
+            #self.idx = _device_index(device)
+            #self.prev_idx = -1
 
         def __enter__(self):
-            print("Enter:",self.idx)
-            self.prev_idx = self.current_device
-            self.current_device = self.idx
+            pass
+            #print("Enter:",self.idx)
+            #self.prev_idx = self.current_device
+            #self.current_device = self.idx
         
         def __exit__(self, type, value, traceback):
-            print("Leave:",self.idx,"->",self.current_device)
-            self.current_device=self.prev_device
+            #print("Leave:",self.idx,"->",self.current_device)
+            #self.current_device=self.prev_device
             return False
 
     @staticmethod
-    def synchronize(dev):
+    def synchronize(dev = None):
         if dev is None:
             impl_synchronize_device(-1)
         else:
