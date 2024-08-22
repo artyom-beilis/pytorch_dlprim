@@ -96,7 +96,7 @@ def test(model, device, test_loader):
 def main():
     # Training settings
     parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
-    parser.add_argument('--batch-size', type=int, default=64, metavar='N',
+    parser.add_argument('--batch-size', type=int, default=128, metavar='N',
                         help='input batch size for training (default: 64)')
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                         help='input batch size for testing (default: 1000)')
@@ -119,6 +119,8 @@ def main():
     parser.add_argument('--save-model', action='store_true', default=False,
                         help='For Saving the current Model')
 
+    parser.add_argument('--model',default='conv',help ='Model type conv, vit')
+
     parser.add_argument('--device',default='cpu')
     args = parser.parse_args()
 
@@ -129,6 +131,8 @@ def main():
         import pytorch_ocl
         if args.profile:
             torch.ocl.enable_profiling(device)
+    if device.find('xpu')==0:
+        import intel_extension_for_pytorch
 
     train_kwargs = {'batch_size': args.batch_size}
     test_kwargs = {'batch_size': args.test_batch_size}
@@ -150,8 +154,16 @@ def main():
     test_loader = torch.utils.data.DataLoader(dataset2, **test_kwargs)
 
     print("Using device:",device)
-	
-    model = Net().to(device)
+
+    if args.model == 'conv':	
+        model = Net().to(device)
+    elif args.model == 'vit':
+        from vit_pytorch import ViT
+        model = ViT(image_size=28, patch_size=7, num_classes=10, channels=1,
+                dim=64, depth=6, heads=8, mlp_dim=128)
+        model.to(device)
+    else:
+        raise Exception("Unsupported model")
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
     scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)

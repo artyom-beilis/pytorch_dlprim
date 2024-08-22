@@ -187,38 +187,58 @@ def  test_mm(device):
                     A = get_mat(M,K,d,At)
                     B = get_mat(K,N,d,Bt)
                     C = get_mat(M,N,d,Ct)
-                    if False:
-                        a_offset = 0 if At < 2 else 5
-                        b_offset = 0 if Bt < 2 else 5
-                        c_offset = 0 if Ct < 2 else 5
-                        As=[M,K]
-                        Bs=[K,N]
-                        Cs=[M,N]
-
-                        if At % 2 :
-                            As.reverse()
-                        if Bt % 2:
-                            Bs.reverse()
-                        if Ct % 2:
-                            Cs.reverse()
-                        if At<4:
-                            A = torch.arange(0,re,device=d,dtype=torch.float32)[a_offset:M*K+a_offset].view(*As)
-                        else:
-                            A = torch.arange(0,re,device=d,dtype=torch.float32)[a_offset:M*K*4+a_offset].view(As[0]*2,As[1]*2)[::2,::2]
-                        if At % 2:
-                            A = A.T
-                        B = torch.arange(0,re,device=d,dtype=torch.float32)[b_offset:K*N+b_offset].view(*Bs)
-                        if Bt % 2:
-                            B = B.T
-                        C = torch.arange(0,re,device=d,dtype=torch.float32)[c_offset:M*N+c_offset].view(*Cs)
-                        if Ct % 2:
-                            C = C.T
                     torch.mm(A,B,out=C)
                     if d == "cpu":
                         C_ref = C
                 if get_diff(C_ref,C) != 0:
                     print("Failed for",M,N,K,At,Bt,Ct);
                     raise Exception("Failure")
+    print("Ok")
+
+def get_bmat(B,D0,D1,d,ind):
+    tr = ind % 2
+    offset = 0 if ind < 2 else 5
+    non_cont = ind >= 4
+    if tr:
+        D0,D1=D1,D0
+    tmp = torch.arange(0,10+B*D0*D1*4,device=d,dtype=torch.float32)
+    size = B*D0*D1
+    if non_cont:
+        size *= 4
+    tmp = tmp[offset:offset+size]
+    if non_cont:
+        tmp = tmp.view(B,D0*2,D1*2)
+        tmp = tmp[:,::2,::2]
+    else:
+        tmp = tmp.view(B,D0,D1)
+    if tr:
+        tmp = torch.transpose(tmp,2,1)
+    return tmp
+
+def test_bmm(device):
+    print("Tesing bmm")
+    Bc = 3
+    M = 4
+    N = 10
+    K = 6
+    for Ba,Bb in [(Bc,Bc),(1,Bc),(Bc,1)]:
+        for Ct in range(2):
+            for At in range(6):
+                for Bt in range(6):
+                    for d in ["cpu",device]:
+                        A = get_bmat(Ba,M,K,d,At)
+                        B = get_bmat(Bb,K,N,d,Bt)
+                        C = get_bmat(Bc,M,N,d,Ct)
+                        if Ba < Bc:
+                            A=A.expand(Bc,M,K)
+                        if Bb < Bc:
+                            B=B.expand(Bc,K,N)
+                        torch.bmm(A,B,out=C)
+                        if d == "cpu":
+                            C_ref = C
+                    if get_diff(C_ref,C) != 0:
+                        print("Failed for",M,N,K,At,Bt,Ct);
+                        raise Exception("Failure")
     print("Ok")
 
     
@@ -428,6 +448,9 @@ if __name__ == '__main__':
     r = p.parse_args()
     if r.device.find('ocl')==0 or r.device.find('privateuseone')==0:
         import pytorch_ocl
+    test_mm(r.device)
+    test_bmm(r.device)
+    sys.exit(0)
     test_all(r.device)
     test_concat(r.device)
     test_rng(r.device)
