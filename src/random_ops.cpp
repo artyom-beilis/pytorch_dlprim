@@ -65,11 +65,52 @@ using c10::DeviceType;
         sync_if_needed(self.device());
         return self;
     }
+    // {"schema": "aten::native_dropout(Tensor input, float p, bool? train) -> (Tensor, Tensor)", "dispatch": "True", "default": "False"}
+    ::std::tuple<Tensor,Tensor> native_dropout(const Tensor & input, double p, ::std::optional<bool> train)
+    {
+        GUARD;
+        Tensor input_c = input.contiguous();
+        dlprim::Tensor X = todp(input_c);
+        Tensor mask = new_tensor_as(X.shape(),input_c);
+        Tensor res =  new_tensor_as(X.shape(),input_c);
+        dlprim::Tensor Y = todp(res);
+        dlprim::Tensor M = todp(mask);
+        if(train && *train && p > 0) {
+            bernoulli_(mask,1-p,c10::nullopt);
+            dlprim::core::pointwise_operation({X,M},{Y},{1/(1-p)},
+                                          "y0 = x0*x1*w0;",
+                                          getExecutionContext(input));
+        }
+        else {
+            torch::fill_(mask,1);
+        }
+        sync_if_needed(input.device());
+        return std::make_pair(res,mask);
+    }
+    // {"schema": "aten::native_dropout_backward(Tensor grad_output, Tensor mask, float scale) -> Tensor", "dispatch": "True", "default": "False"}
+    Tensor native_dropout_backward(const Tensor & grad_output, const Tensor & mask, double scale)
+    {
+        GUARD;
+        Tensor grad_output_c=grad_output.contiguous();
+        Tensor mask_c=mask.contiguous();
+        dlprim::Tensor dy = todp(grad_output_c);
+        dlprim::Tensor m = todp(mask_c);
+        Tensor res =  new_tensor_as(dy.shape(),grad_output);
+        dlprim::Tensor dx = todp(res);
+        dlprim::core::pointwise_operation({dy,m},{dx},{scale},
+                "y0 = x0*x1*w0;",
+                getExecutionContext(grad_output));
+        sync_if_needed(grad_output.device());
+        return res;
+    }
+
 
 } // namespace
 TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::bernoulli_.float",&ptdlprim::bernoulli_);
       m.impl("aten::normal_",&ptdlprim::normal_);
       m.impl("aten::uniform_",&ptdlprim::uniform_);
+      m.impl("aten::native_dropout",&ptdlprim::native_dropout);
+      m.impl("aten::native_dropout_backward",&ptdlprim::native_dropout_backward);
 }
 

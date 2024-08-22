@@ -390,6 +390,7 @@ def seed_dev(dev,s):
         torch.manual_seed(s)
 
 def test_rng(dev):
+    print("Testing RNG")
     seed_dev(dev,10)
     x1=torch.randn(10,device=dev)
     x2=torch.randn(10,device=dev)
@@ -401,6 +402,23 @@ def test_rng(dev):
     assert torch.max(torch.abs(x1-x2)).item() > 0
     assert torch.max(torch.abs(x1-x3)).item() == 0
     print("RNG Ok")
+    print("Testing dropout")
+    x=torch.randn(1000,device=dev)
+    x.requires_grad=True
+    y=torch.nn.functional.dropout(x,p=0.25,training=False);
+    assert torch.max(torch.abs(x-y)).item() ==0
+    x=torch.rand(1000,device=dev)
+    x.requires_grad=True
+    y=torch.nn.functional.dropout(x,p=0.25,training=True);
+    assert abs(torch.mean((y > 0).to(torch.float32)).item() - 0.75) < 0.1
+    assert (torch.mean(x) - torch.mean(y)).item() < 0.05
+    y.backward(torch.ones(1000,device=dev))
+    dx = x.grad
+    assert abs(torch.mean((dx > 0).to(torch.float32)).item() - 0.75) < 0.1
+    print("Dropout ok")
+
+
+
 
 
 
