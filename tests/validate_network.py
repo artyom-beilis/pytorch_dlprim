@@ -62,7 +62,8 @@ def step(model,data,lables,opt_steps=0,iter_size=1,fwd=False,test=True):
     else:
         model.train()
     if fwd:
-        return dict(output=_det(model(data)))
+        with torch.no_grad():
+            return dict(output=_det(model(data)))
     optimizer = torch.optim.Adam(model.parameters())
     save_res={}
     for o in range(max(1,opt_steps)):
