@@ -20,20 +20,18 @@ using c10::DeviceType;
 
     using torch::Tensor;
     
-    torch::Tensor allocate_empty(torch::IntArrayRef size, c10::optional<ScalarType> dtype, c10::optional<Layout> /*layout*/, c10::optional<Device> device, c10::optional<bool> /*pin_memory*/, c10::optional<MemoryFormat> /*memory_format*/)
+    torch::Tensor allocate_empty(torch::IntArrayRef size, c10::optional<ScalarType> dtype, c10::optional<Layout> layout, c10::optional<Device> device, c10::optional<bool> /*pin_memory*/, c10::optional<MemoryFormat> /*memory_format*/)
     {
         GUARD;
+        TORCH_CHECK(!layout || *layout == Layout::Strided,"pytorch_ocl supports only strided layout")
+        // FIX ME Later -how to handle non Contiguous format {
+        //TORCH_CHECK(!memory_format || *memory_format == MemoryFormat::Contiguous,"Contigonous format expected");
+        // }
         c10::ScalarType st = dtype ? *dtype : c10::kFloat; 
         c10::Device dev = device ? *device : Device(OpenCLDeviceType,0);
         return ptdlprim::new_ocl_tensor(size,dev,st);
     }
 
-    /// "aten::empty_strided"
-    Tensor empty_strided(torch::IntArrayRef size, torch::IntArrayRef /*stride*/, c10::optional<ScalarType> dtype, c10::optional<Layout> layout, c10::optional<Device> device, c10::optional<bool> pin_memory) 
-    {
-        GUARD;
-        return allocate_empty(size,dtype,layout,device,pin_memory,c10::nullopt);
-    }
 
     torch::Tensor _reshape_alias(const Tensor & self, c10::IntArrayRef size, c10::IntArrayRef stride)
     {
@@ -41,6 +39,14 @@ using c10::DeviceType;
         torch::Tensor data = at::alias(self);
         data.getIntrusivePtr()->set_sizes_and_strides(size,stride);
         return data;
+    }
+
+/// "aten::empty_strided"
+    Tensor empty_strided(torch::IntArrayRef size, torch::IntArrayRef stride, c10::optional<ScalarType> dtype, c10::optional<Layout> layout, c10::optional<Device> device, c10::optional<bool> pin_memory) 
+    {
+        GUARD;
+        Tensor r = allocate_empty(size,dtype,layout,device,pin_memory,c10::nullopt);
+        return ptdlprim::_reshape_alias(r,size,stride);
     }
 
     Tensor view_old(const Tensor & self, IntArrayRef size)
