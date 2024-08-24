@@ -448,10 +448,8 @@ if __name__ == '__main__':
     r = p.parse_args()
     if r.device.find('ocl')==0 or r.device.find('privateuseone')==0:
         import pytorch_ocl
-    test_mm(r.device)
-    test_bmm(r.device)
-    sys.exit(0)
     test_all(r.device)
     test_concat(r.device)
     test_rng(r.device)
     test_mm(r.device)
+    test_bmm(r.device)
