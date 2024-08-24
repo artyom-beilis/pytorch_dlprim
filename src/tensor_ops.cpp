@@ -27,8 +27,12 @@ using c10::DeviceType;
         // FIX ME Later -how to handle non Contiguous format {
         //TORCH_CHECK(!memory_format || *memory_format == MemoryFormat::Contiguous,"Contigonous format expected");
         // }
-        c10::ScalarType st = dtype ? *dtype : c10::kFloat; 
         c10::Device dev = device ? *device : Device(OpenCLDeviceType,0);
+        c10::ScalarType st = dtype ? *dtype : c10::kFloat; 
+        if(st == c10::kDouble && !CLContextManager::fp64(dev.index())) {
+            st = c10::kFloat;
+            TORCH_WARN("This device ocl:" + std::to_string(dev.index()) + " does not support cl_khr_fp64, falling back to float");
+        }
         return ptdlprim::new_ocl_tensor(size,dev,st);
     }
 
@@ -117,7 +121,7 @@ using c10::DeviceType;
         if(self.numel() == 0 && dst.numel() == 0) {
             return self;
         }
-
+        
         if(dst.device().type() == c10::DeviceType::CPU && self.device().type() == OpenCLDeviceType) {
             Tensor c_src = make_contiguous_as_target_type(self,dst);
             dlprim::Tensor t = todp(c_src);

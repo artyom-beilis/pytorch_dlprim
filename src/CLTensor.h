@@ -163,6 +163,11 @@ namespace ptdlprim {
             return data[index]->ready;
         }
 
+        static bool fp64(int index)
+        {
+            return instance().data(index).fp64;
+        }
+
         static bool enable_profiling(int device)
         {
             if(is_ready(device))
@@ -194,6 +199,7 @@ namespace ptdlprim {
         struct DevData {
             bool ready = false; // FIXME make thread safe
             bool enable_profiling = false;
+            bool fp64 = false;
             dlprim::RandomState rng;
             std::string name;
             dlprim::Context ctx;
@@ -261,6 +267,7 @@ namespace ptdlprim {
             if(res.ready)
                 return res;
             res.ctx=dlprim::Context(res.name);
+            res.fp64 = res.ctx.check_device_extension("cl_khr_fp64");
             res.queue = res.ctx.make_execution_context(res.enable_profiling ? CL_QUEUE_PROFILING_ENABLE : 0);
             res.cache.prepare(res.ctx);
             res.ready = true;
