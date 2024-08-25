@@ -373,6 +373,26 @@ def test_all(device):
     print("Test arange out empty")
     test_fwd([([1],-1)],lambda x:torch.arange(0,10,out=x),device)
 
+    print("Test amax full")
+    test_fwd_bwd([([2,3,4,5],-1)],lambda x:torch.amax(x,(1,-1)),device)
+
+    print("Test amax keepdim")
+    test_fwd_bwd([([2,3,4,5],-1)],lambda x:torch.amax(x,(1,-1),keepdim=True),device)
+
+    print("Test amax all")
+    test_fwd_bwd([([2,3,4,5],-1)],lambda x:torch.amax(x,keepdim=False),device)
+
+    print("Test amin full")
+    test_fwd_bwd([([2,3,4,5],-1)],lambda x:torch.amin(x,(1,-1)),device)
+
+    print("Test amin keepdim")
+    test_fwd_bwd([([2,3,4,5],-1)],lambda x:torch.amin(x,(1,-1),keepdim=True),device)
+
+    print("Test amin all")
+    test_fwd_bwd([([2,3,4,5],-1)],lambda x:torch.amin(x,keepdim=False),device)
+
+
+
 def test_concat(dev):
     print("Test concat")
     with torch.no_grad():

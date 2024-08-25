@@ -1006,7 +1006,62 @@ using c10::DeviceType;
         sync_if_needed(self.device());
         return grad_input;
     }
-    
+
+    // {"schema": "aten::amax.out(Tensor self, int[1] dim=[], bool keepdim=False, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & amin_amax_out(const Tensor & self, IntArrayRef dim, bool keepdim, Tensor & out,bool is_max)
+    {
+        GUARD;
+        Tensor self_c = self.contiguous();
+        Tensor out_c = out.contiguous();
+        
+        dlprim::Tensor X = todp(self_c);
+        dlprim::Tensor Yval = todp(out_c);
+        std::vector<int64_t> dims;
+        for(int64_t d :dim) {
+            dims.push_back(d);
+        }
+        if(dims.empty()) {
+            for(int i=0;i<X.shape().size();i++)
+                dims.push_back(i);
+        }
+        c10::IntArrayRef sqdims(dims.data(),dims.size());
+        auto r = squeeze_dim(X.shape(),sqdims,keepdim);
+        TORCH_CHECK(r.second == Yval.shape(),"Invalid output shape");
+        Yval.reshape(r.first);
+
+        dlprim::ExecutionContext q=getExecutionContext(self);
+        dlprim::Context ctx(q);
+        std::string ext_val = dlprim::data_type_to_opencl_numeric_limit(X.dtype(),(is_max ? dlprim::dt_min_val : dlprim::dt_max_val));
+        auto op = dlprim::core::PointwiseOperationBroadcastReduce::create(
+                    ctx,
+                    {X.specs()},{Yval.specs()},
+                    0,X.dtype(),
+                    "y0=x0;",
+                    "reduce_y0 = " + ext_val + ";",
+                    std::string("reduce_y0 = ") + (is_max?"max":"min") + "(reduce_y0,y0);"
+                    );
+        WSGuard ws_guard(op->workspace(),self.device());
+        op->enqueue({X},{Yval},ws_guard.ws,{},{1,1},{0,0},q);
+        
+        if (!out.is_contiguous())
+            out.copy_(out_c);
+
+        sync_if_needed(self.device());
+        return out;
+    }
+    // {"schema": "aten::amax.out(Tensor self, int[1] dim=[], bool keepdim=False, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & amax_out(const Tensor & self, IntArrayRef dim, bool keepdim, Tensor & out)
+    {
+        return amin_amax_out(self,dim,keepdim,out,true);
+    }
+    // {"schema": "aten::amin.out(Tensor self, int[1] dim=[], bool keepdim=False, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & amin_out(const Tensor & self, IntArrayRef dim, bool keepdim, Tensor & out)
+    {
+        return amin_amax_out(self,dim,keepdim,out,false);
+    }
+
+
+
     // {"schema": "aten::argmax.out(Tensor self, int? dim=None, bool keepdim=False, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & argmax_out(const Tensor & self, c10::optional<int64_t> dim, bool keepdim, Tensor & out)
     {
@@ -1525,6 +1580,8 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::logit.out",&ptdlprim::logit_out);
       m.impl("aten::logit",&ptdlprim::logit);
       m.impl("aten::arange.start_out",&ptdlprim::arange_out);
+      m.impl("aten::amax.out",&ptdlprim::amax_out);
+      m.impl("aten::amin.out",&ptdlprim::amin_out);
       
 }
 
