@@ -295,7 +295,7 @@ using c10::DeviceType;
         
         dlprim::Tensor x0=todp(self_c);
         dlprim::Tensor y0=todp(out_c);
-        dlprim::core::pointwise_operation_broadcast({x0},{y0},{},"y0=1.0/x0;",getExecutionContext(self));
+        dlprim::core::pointwise_operation_broadcast({x0},{y0},{},"y0=1.0f/x0;",getExecutionContext(self));
         
         if (!out.is_contiguous())
             out.copy_(out_c);
@@ -724,7 +724,7 @@ using c10::DeviceType;
         
         Tensor self_c = self.contiguous();
         dlprim::Tensor x=todp(self_c);
-        dlprim::core::pointwise_operation({x},{x},{},"y0 = x0 <= -3 ? 0 : (x0>=3 ? x0 : x0*(x0+3)/6);",getExecutionContext(self));
+        dlprim::core::pointwise_operation({x},{x},{},"y0 = x0 <= -3.0f ? 0 : (x0>=3.0f ? x0 : x0*(x0+3.0f)/6.0f);",getExecutionContext(self));
         
         if (!self.is_contiguous())
             self.copy_(self_c);
@@ -740,7 +740,7 @@ using c10::DeviceType;
         
         dlprim::Tensor x=todp(self_c);
         dlprim::Tensor y=todp(out_c);
-        dlprim::core::pointwise_operation({x},{y},{},"y0 = x0 <= -3 ? 0 : (x0>=3 ? 1 : x0/6 + 0.5);",getExecutionContext(self));
+        dlprim::core::pointwise_operation({x},{y},{},"y0 = x0 <= -3.0f ? 0 : (x0>=3.0f ? 1.0f : x0/6.0f + 0.5f);",getExecutionContext(self));
         
         if (!out.is_contiguous())
             out.copy_(out_c);
@@ -783,10 +783,10 @@ using c10::DeviceType;
         dlprim::Tensor x =todp(self_c);
         dlprim::core::pointwise_operation({x,dy},{dx},{},
             R"xxx(
-                if (x0 < -3) {
+                if (x0 < -3.0f) {
                     y0 = 0;
-                } else if (x0 <= 3) {
-                    y0 =  x1 * ((x0 / 3) + 0.5);
+                } else if (x0 <= 3.0f) {
+                    y0 =  x1 * ((x0 / 3.0f) + 0.5f);
                 } else {
                     y0 = x1;
                 }
@@ -909,7 +909,7 @@ using c10::DeviceType;
         
         dlprim::Tensor x=todp(self_c);
         dlprim::Tensor y=todp(out);
-        dlprim::core::pointwise_operation({x},{y},{},"y0 = x0 / (1 + exp(-x0));",getExecutionContext(self));
+        dlprim::core::pointwise_operation({x},{y},{},"y0 = x0 / (1.0f + exp(-x0));",getExecutionContext(self));
         
         if (!out.is_contiguous())
             out.copy_(out_c);
@@ -931,8 +931,8 @@ using c10::DeviceType;
         dlprim::Tensor dx=todp(grad_input);
         dlprim::core::pointwise_operation({x,dy},{dx},{},
             R"xxx(
-                y0 = 1 / (1 + exp(-x0));
-                y0 = x1 * y0 * ( 1 + x0 * (1 - y0));
+                y0 = 1.0f / (1.0f + exp(-x0));
+                y0 = x1 * y0 * ( 1.0f + x0 * (1.0f - y0));
             )xxx",
             getExecutionContext(self));
         
@@ -1306,9 +1306,10 @@ using c10::DeviceType;
         auto q = getExecutionContext(self);
         TORCH_CHECK(approximate == "none" || approximate == "tanh","Unsupported variant")
         if(approximate == "tanh")
-            dlprim::core::pointwise_operation({X},{Y},{},"y0 = 0.5 * x0 * (1.0 + tanh(0.7978845608028654 * x0 * (1 + 0.044715 * x0 * x0)));",q); // 0.7978845608028654 = sqrt(2/pi)
-        else
-            dlprim::core::pointwise_operation({X},{Y},{},"y0 = x0 * (1.0 + erf(x0 * 0.7071067811865475  )) / 2.0;",q); // 0.7071067811865475 = 1/sqrt(2)
+            dlprim::core::pointwise_operation({X},{Y},{},"y0 = 0.5f * x0 * (1.0f + tanh(0.7978845608028654f * x0 * (1.0f + 0.044715f * x0 * x0)));",q); // 0.7978845608028654 = sqrt(2/pi)
+        else {
+            dlprim::core::pointwise_operation({X},{Y},{},"y0 = x0 * (1.0f + erf(x0 * 0.7071067811865475f  )) / 2.0f;",q); // 0.7071067811865475 = 1/sqrt(2)
+        }
             
         if (!out.is_contiguous())
             out.copy_(out_c);
@@ -1335,11 +1336,12 @@ using c10::DeviceType;
         char const *eq;
         // 1.128379167095512558561 = 2/ sqrt(pi)
         // 0.7071067811865475 = 1/sqrt(2)
+        
         if(approximate == "tanh")
             eq = R"xxx(
-                dtype alpha = 1.128379167095512558561 * 0.7071067811865475;
-                dtype koeff = 0.044715;
-                dtype beta  = alpha * koeff * 3;
+                dtype alpha = 1.128379167095512558561f * 0.7071067811865475f;
+                dtype koeff = 0.044715f;
+                dtype beta  = alpha * koeff * 3.0f;
                 dtype Y = tanh(alpha * fma(koeff,x0*x0*x0,x0));
                 y0 = 0.5f * x1 * fma(
                     fma(-x0,Y * Y, x0),
@@ -1349,8 +1351,8 @@ using c10::DeviceType;
             )xxx";
         else
             eq = R"xxx(
-                dtype alpha = 1.128379167095512558561 * 0.7071067811865475 * 0.5; 
-                dtype cdf = 0.5 * (1.0 + erf(x0 * 0.7071067811865475));
+                dtype alpha = 1.128379167095512558561f * 0.7071067811865475f * 0.5f; 
+                dtype cdf = 0.5f * (1.0f + erf(x0 * 0.7071067811865475f));
                 y0 = x1 * fma(
                     alpha * x0,
                     exp(-0.5f * x0*x0),
@@ -1377,12 +1379,12 @@ using c10::DeviceType;
         if(eps) {
             double e = *eps;
             dlprim::core::pointwise_operation({X},{Y},{e},
-                "dtype z = min(1-w0,max(w0,x0)); "
-                "y0 = log(z / (z-1)); ",q);
+                "dtype z = min(1.0f-w0,max(w0,x0)); "
+                "y0 = log(z / (z-1.0f)); ",q);
         }
         else {
             dlprim::core::pointwise_operation({X},{Y},{},
-                "y0 = log(x0 / (x0-1));",q);
+                "y0 = log(x0 / (x0-1.0f));",q);
         }
         if(!out.is_contiguous())
             out.copy_(out_c);
