@@ -507,7 +507,7 @@ using c10::DeviceType;
         return grad_input;
     }
 
-    static Tensor get_bmm_mm_valid_tensor(Tensor const &t,bool &transposed,bool &copied,int bmm)
+    static Tensor get_bmm_mm_valid_tensor(Tensor const &t,bool &transposed,int &ld,bool &copied,int bmm,char /*M*/)
     {
         auto sizes= t.sizes();
         auto strides = t.strides();
@@ -515,15 +515,23 @@ using c10::DeviceType;
         TORCH_CHECK(sizes[0+bmm] > 0 && sizes[1+bmm] > 0,"Invalid matrix size");
         copied = false;
         if(t.is_contiguous())  {
+            ld = strides[0+bmm];
             transposed = false;
             return t;
         }
-        if(strides[1+bmm] == sizes[0+bmm] && strides[0+bmm] == 1) {
+        if(strides[1+bmm] >= sizes[0+bmm] && strides[0+bmm] == 1) {
+            ld = strides[1+bmm];
             transposed = true;
+            return t;
+        }
+        if(strides[0+bmm] >= sizes[1+bmm] && strides[1+bmm] == 1) {
+            ld = strides[0+bmm];
+            transposed = false;
             return t;
         }
         transposed = false;
         copied = true;
+        ld = sizes[1+bmm];
         return t.contiguous();
     }
 
@@ -532,9 +540,10 @@ using c10::DeviceType;
         GUARD;
         Tensor A,B,C;
         bool At=false,Bt=false,Ct=false,Ac,Bc,Cc;
-        A = get_bmm_mm_valid_tensor(self,At,Ac,bmm);
-        B = get_bmm_mm_valid_tensor(mat2,Bt,Bc,bmm);
-        C = get_bmm_mm_valid_tensor(out, Ct,Cc,bmm);
+        int lda,ldb,ldc;
+        A = get_bmm_mm_valid_tensor(self,At,lda,Ac,bmm,'A');
+        B = get_bmm_mm_valid_tensor(mat2,Bt,ldb,Bc,bmm,'B');
+        C = get_bmm_mm_valid_tensor(out, Ct,ldc,Cc,bmm,'C');
         if(Ct) {
             Ct = false;
             A=torch::transpose(A,0+bmm,1+bmm);
@@ -543,6 +552,7 @@ using c10::DeviceType;
             At = !At;
             Bt = !Bt;
             std::swap(A,B);
+            std::swap(lda,ldb);
             std::swap(At,Bt);
         }
         
@@ -578,9 +588,9 @@ using c10::DeviceType;
         if(bmm == 0) {
             auto gemm_op = dlprim::gpu::GEMM::get_optimal_gemm(ctx,todp(A.dtype()),At,Bt,M,N,K);
             gemm_op->gemm(M,N,K,
-                    Abuf,Aoff,(At?M:K),
-                    Bbuf,Boff,(Bt?K:N),
-                    Cbuf,Coff,N,
+                    Abuf,Aoff,lda,
+                    Bbuf,Boff,ldb,
+                    Cbuf,Coff,ldc,
                     nullptr,0,0,M*N,q);
         }
         else {
@@ -591,9 +601,9 @@ using c10::DeviceType;
             dlprim::gpu::GEMM::batch_sgemm(todp(A.dtype()),
                 At,Bt,
                 batch,M,N,K,
-                Abuf,Aoff,step_A,(At?M:K),
-                Bbuf,Boff,step_B,(Bt?K:N),
-                Cbuf,Coff,step_C,N,
+                Abuf,Aoff,step_A,lda,
+                Bbuf,Boff,step_B,ldb,
+                Cbuf,Coff,step_C,ldc,
                 0.0f,q);
         }
         if(Cc)
