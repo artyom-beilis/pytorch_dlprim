@@ -479,15 +479,19 @@ def test_rng(dev):
 
 
 def test_comp(device):
-    for name,op in [('==',torch.eq),('!=',torch.ne),('>',torch.gt),('<',torch.lt),('>=',torch.ge),('<=',torch.le)]:
-        print("Test ",name)
-        test_fwd([([20,30],-1),([1,30],-1)],lambda a,b:op(torch.round(a)*10,torch.round(b)*10).to(torch.float),device)
-        print("Test ",name, " with scalar")
-        test_fwd([([20,30],-1)],lambda a:op(torch.round(a)*10,5).to(torch.float),device)
-        print("Test ",name, " with tenspor R")
-        test_fwd([([20,30],-1)],lambda a:op(torch.round(a)*10,torch.tensor(5,dtype=torch.float32)).to(torch.float),device)
-        print("Test ",name, " with tenspor L")
-        test_fwd([([20,30],-1)],lambda a:op(torch.tensor(5,dtype=torch.float32),torch.round(a)*10).to(torch.float),device)
+    l1 = [("maximum",torch.maximum),("minimum",torch.minimum)]
+    l2 = [('==',torch.eq),('!=',torch.ne),('>',torch.gt),('<',torch.lt),('>=',torch.ge),('<=',torch.le)]
+    for with_scal,cases in [(True,l2),(False,l1)]:
+        for name,op in cases:
+            print("Test ",name)
+            test_fwd([([20,30],-1),([1,30],-1)],lambda a,b:op(torch.round(a)*10,torch.round(b)*10).to(torch.float),device)
+            if with_scal:
+                print("Test ",name, " with scalar")
+                test_fwd([([20,30],-1)],lambda a:op(torch.round(a)*10,5).to(torch.float),device)
+            print("Test ",name, " with tenspor R")
+            test_fwd([([20,30],-1)],lambda a:op(torch.round(a)*10,torch.tensor(5,dtype=torch.float32)).to(torch.float),device)
+            print("Test ",name, " with tenspor L")
+            test_fwd([([20,30],-1)],lambda a:op(torch.tensor(5,dtype=torch.float32),torch.round(a)*10).to(torch.float),device)
 
 
 if __name__ == '__main__': 

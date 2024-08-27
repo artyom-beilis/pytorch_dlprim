@@ -338,25 +338,29 @@ using c10::DeviceType;
 
     }
 
-    Tensor & binary_op_out_tensor(const Tensor & self, const Tensor & other, Tensor & out,std::string const &op)
+    Tensor & binary_op_out_tensor(const Tensor & self, const Tensor & other, Tensor & out,std::string const &op,std::string op_builder="")
     {
         GUARD;
         Tensor self_c  = self.contiguous(), out_c = out.contiguous(),
                other_c = other.contiguous();
         
+        if(op_builder.empty()) {
+            op_builder = "y0 = left " + op + " right;";
+        }
+
         dlprim::Tensor y(todp(out_c));
         double value;
         if(isCPUScalar(other,value)) {
             dlprim::Tensor x0(todp(self_c));
             dlprim::core::pointwise_operation_broadcast({x0},{y},{value},{x0.dtype()},
-                        "y0 = x0 " + op + " w0;", 
+                        "typeof_x0 left = x0; typeof_w0 right = w0;" + op_builder,
                         getExecutionContext(self));
             sync_if_needed(self.device());
         }
         else if(isCPUScalar(self,value)) {
             dlprim::Tensor x0(todp(other_c));
             dlprim::core::pointwise_operation_broadcast({x0},{y},{value},{x0.dtype()},
-                        "y0 = w0 " + op + " x0;", 
+                        "typeof_w0 left = w0; typeof_x0 right = x0;" + op_builder,
                         getExecutionContext(other));
             sync_if_needed(other.device());
         }
@@ -364,7 +368,7 @@ using c10::DeviceType;
             dlprim::Tensor x0(todp(self_c));
             dlprim::Tensor x1(todp(other_c));
             dlprim::core::pointwise_operation_broadcast({x0,x1},{y},{},
-                    "y0 = x0 " + op + " x1;", 
+                    "typeof_x0 left = x0; typeof_x1 right = x1;" + op_builder,
                     getExecutionContext(self));
             sync_if_needed(self.device());
         }
@@ -1401,6 +1405,20 @@ using c10::DeviceType;
         sync_if_needed(out.device());
         return out;
     }
+
+    // {"schema": "aten::maximum.out(Tensor self, Tensor other, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & maximum_out(const Tensor & self, const Tensor & other, Tensor & out)
+    {
+        GUARD;
+        return binary_op_out_tensor(self,other,out,"","y0 = max(left,right); ");
+    }
+    // {"schema": "aten::minimum.out(Tensor self, Tensor other, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & minimum_out(const Tensor & self, const Tensor & other, Tensor & out)
+    {
+        GUARD;
+        return binary_op_out_tensor(self,other,out,"","y0 = min(left,right); ");
+    }
+
     
 
     
@@ -1501,6 +1519,8 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::amax.out",&ptdlprim::amax_out);
       m.impl("aten::amin.out",&ptdlprim::amin_out);
       m.impl("aten::round.out",&ptdlprim::round_out);
+      m.impl("aten::maximum.out",&ptdlprim::maximum_out);
+      m.impl("aten::minimum.out",&ptdlprim::minimum_out);
       
 }
 
