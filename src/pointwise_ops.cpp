@@ -166,14 +166,14 @@ using c10::DeviceType;
         return out;
     }
 
-    // {"schema": "aten::exp.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
-    Tensor & exp_out(const Tensor & self, Tensor & out)
+    Tensor &unitary_op(const Tensor &self,Tensor &out,std::string const &op)
     {
         GUARD;
         Tensor self_c = self.contiguous(), out_c = out.contiguous();
         
-        dlprim::core::pointwise_operation({todp(self_c)},{todp(out_c)},{},
-                    "y0 = exp(x0);",getExecutionContext(self));
+        dlprim::Tensor x=todp(self_c);
+        dlprim::Tensor y=todp(out_c);
+        dlprim::core::pointwise_operation({x},{y},{},op,getExecutionContext(self));
         
         if (!out.is_contiguous())
             out.copy_(out_c);
@@ -181,21 +181,20 @@ using c10::DeviceType;
         sync_if_needed(self.device());
         return out;
     }
+    
+
+    // {"schema": "aten::exp.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & exp_out(const Tensor & self, Tensor & out)
+    {
+        GUARD;
+        return unitary_op(self,out,"y0 = exp(x0);");
+    }
 
     // {"schema": "aten::log.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & log_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.contiguous(), out_c = out.contiguous();
-        
-        dlprim::core::pointwise_operation({todp(self_c)},{todp(out_c)},{},
-                    "y0 = log(x0);",getExecutionContext(self));
-        
-        if (!out.is_contiguous())
-            out.copy_(out_c);
-        
-        sync_if_needed(self.device());
-        return out;
+        return unitary_op(self,out,"y0 = log(x0);");
     }
 
     // {"schema": "aten::sub.out(Tensor self, Tensor other, *, Scalar alpha=1, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
@@ -275,53 +274,20 @@ using c10::DeviceType;
     Tensor & neg_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.contiguous(), out_c = out.contiguous();
-        
-        dlprim::Tensor x0=todp(self_c);
-        dlprim::Tensor y0=todp(out_c);
-        dlprim::core::pointwise_operation_broadcast({x0},{y0},{},"y0=-x0;",getExecutionContext(self));
-        
-        if (!out.is_contiguous())
-            out.copy_(out_c);
-        
-        sync_if_needed(self.device());
-        return out;
+        return unitary_op(self,out,"y0=-x0;");
     }
     // {"schema": "aten::reciprocal.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & reciprocal_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.contiguous(), out_c = out.contiguous();
-        
-        dlprim::Tensor x0=todp(self_c);
-        dlprim::Tensor y0=todp(out_c);
-        dlprim::core::pointwise_operation_broadcast({x0},{y0},{},"y0=1.0f/x0;",getExecutionContext(self));
-        
-        if (!out.is_contiguous())
-            out.copy_(out_c);
-        
-        sync_if_needed(self.device());
-        return out;
+        return unitary_op(self,out,"y0=1.0f/x0;");
     }
 
     // {"schema": "aten::sqrt.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & sqrt_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.contiguous(), out_c = out.contiguous();
-        
-        dlprim::Tensor x0=todp(self_c);
-        dlprim::Tensor y0=todp(out_c);
-        dlprim::core::pointwise_operation({x0},{y0},{},
-                                      "y0 = sqrt(x0);",
-                                      getExecutionContext(self));
-        
-        if (!out.is_contiguous())
-            out.copy_(out_c);
-        
-        sync_if_needed(self.device());
-        return out;
-
+        return unitary_op(self,out,"y0 = sqrt(x0);");
     }
 
     // {"schema": "aten::div.out(Tensor self, Tensor other, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
@@ -371,35 +337,49 @@ using c10::DeviceType;
         return out;
 
     }
-    Tensor & mul_out(const Tensor & self, const Tensor & other, Tensor & out)
+
+    Tensor & binary_op_out_tensor(const Tensor & self, const Tensor & other, Tensor & out,std::string const &op)
     {
         GUARD;
-        double scale=0;
+        Tensor self_c  = self.contiguous(), out_c = out.contiguous(),
+               other_c = other.contiguous();
         
-        Tensor self_c = self.contiguous(), out_c = out.contiguous();
-        
-        dlprim::Tensor x0=todp(self_c);
-        dlprim::Tensor y0=todp(out_c);
-
-        if(isCPUScalar(other,scale)) {
-            dlprim::core::pointwise_operation({x0},{y0},{float(scale)},
-                                          "y0 = x0*w0;",
-                                          getExecutionContext(self));
+        dlprim::Tensor y(todp(out_c));
+        double value;
+        if(isCPUScalar(other,value)) {
+            dlprim::Tensor x0(todp(self_c));
+            dlprim::core::pointwise_operation_broadcast({x0},{y},{value},{x0.dtype()},
+                        "y0 = x0 " + op + " w0;", 
+                        getExecutionContext(self));
+            sync_if_needed(self.device());
+        }
+        else if(isCPUScalar(self,value)) {
+            dlprim::Tensor x0(todp(other_c));
+            dlprim::core::pointwise_operation_broadcast({x0},{y},{value},{x0.dtype()},
+                        "y0 = w0 " + op + " x0;", 
+                        getExecutionContext(other));
+            sync_if_needed(other.device());
         }
         else {
-            Tensor other_c = other.contiguous();
-            
-            dlprim::Tensor x1=todp(other_c);
-            dlprim::core::pointwise_operation_broadcast({x0,x1},{y0},{},
-                                          "y0 = x0*x1;",
-                                          getExecutionContext(self));
+            dlprim::Tensor x0(todp(self_c));
+            dlprim::Tensor x1(todp(other_c));
+            dlprim::core::pointwise_operation_broadcast({x0,x1},{y},{},
+                    "y0 = x0 " + op + " x1;", 
+                    getExecutionContext(self));
+            sync_if_needed(self.device());
         }
         
         if (!out.is_contiguous())
             out.copy_(out_c);
-        
-        sync_if_needed(self.device());
+
         return out;
+    }
+
+
+    Tensor & mul_out(const Tensor & self, const Tensor & other, Tensor & out)
+    {
+        GUARD;
+        return binary_op_out_tensor(self,other,out,"*");
     }
 
     // {"schema": "aten::addcdiv.out(Tensor self, Tensor tensor1, Tensor tensor2, *, Scalar value=1, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
@@ -582,6 +562,7 @@ using c10::DeviceType;
         return result;
     }
 
+
     // {"schema": "aten::abs.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor abs(const Tensor & self)
     {
@@ -594,39 +575,25 @@ using c10::DeviceType;
         sync_if_needed(self.device());
         return out;
     }
+     // {"schema": "aten::round.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & round_out(const Tensor & self, Tensor & out)
+    {
+        GUARD;
+        return unitary_op(self,out,"y0=round(x0);");
+    }
 
      // {"schema": "aten::abs.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & abs_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.contiguous(), out_c = out.contiguous();
-        
-        dlprim::Tensor x=todp(self_c);
-        dlprim::Tensor y=todp(out_c);
-        dlprim::core::pointwise_operation({x},{y},{},"y0 = x0 < 0 ? -x0 : x0;",getExecutionContext(self));
-        
-        if (!out.is_contiguous())
-            out.copy_(out_c);
-        
-        sync_if_needed(self.device());
-        return out;
+        return unitary_op(self,out,"y0 = x0 < 0 ? -x0 : x0;");
     }
 
     // {"schema": "aten::sgn.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & sgn_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.contiguous(), out_c = out.contiguous();
-        
-        dlprim::Tensor x=todp(self_c);
-        dlprim::Tensor y=todp(out_c);
-        dlprim::core::pointwise_operation({x},{y},{},"y0 = x0 < 0 ? -1 : (x0 > 0 ? 1 : 0) ;",getExecutionContext(self));
-        
-        if (!out.is_contiguous())
-            out.copy_(out_c);
-        
-        sync_if_needed(self.device());
-        return out;
+        return unitary_op(self,out,"y0 = x0 < 0 ? -1 : (x0 > 0 ? 1 : 0) ;");
     }
 
     template<typename TL>
@@ -736,17 +703,7 @@ using c10::DeviceType;
     Tensor & hardsigmoid_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.contiguous(), out_c = out.contiguous();
-        
-        dlprim::Tensor x=todp(self_c);
-        dlprim::Tensor y=todp(out_c);
-        dlprim::core::pointwise_operation({x},{y},{},"y0 = x0 <= -3.0f ? 0 : (x0>=3.0f ? 1.0f : x0/6.0f + 0.5f);",getExecutionContext(self));
-        
-        if (!out.is_contiguous())
-            out.copy_(out_c);
-        
-        sync_if_needed(self.device());
-        return out;
+        return unitary_op(self,out,"y0 = x0 <= -3.0f ? 0 : (x0>=3.0f ? 1.0f : x0/6.0f + 0.5f);");
     }
     // {"schema": "aten::hardsigmoid_backward.grad_input(Tensor grad_output, Tensor self, *, Tensor(a!) grad_input) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & hardsigmoid_backward_out(const Tensor & grad_output, const Tensor & self, Tensor & grad_input)
@@ -905,17 +862,7 @@ using c10::DeviceType;
     Tensor & silu_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.contiguous(), out_c = out.contiguous();
-        
-        dlprim::Tensor x=todp(self_c);
-        dlprim::Tensor y=todp(out);
-        dlprim::core::pointwise_operation({x},{y},{},"y0 = x0 / (1.0f + exp(-x0));",getExecutionContext(self));
-        
-        if (!out.is_contiguous())
-            out.copy_(out_c);
-        
-        sync_if_needed(self.device());
-        return out;
+        return unitary_op(self,out,"y0 = x0 / (1.0f + exp(-x0));");
     }
 
     // {"schema": "aten::silu_backward.grad_input(Tensor grad_output, Tensor self, *, Tensor(a!) grad_input) -> Tensor(a!)", "dispatch": "True", "default": "False"}
@@ -1200,26 +1147,30 @@ using c10::DeviceType;
 
     }
 
-    // {"schema": "aten::ne.Tensor_out(Tensor self, Tensor other, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+
     Tensor & ne_out_tensor(const Tensor & self, const Tensor & other, Tensor & out)
     {
-        GUARD;
-        Tensor self_c  = self.contiguous(), out_c = out.contiguous(),
-               other_c = other.contiguous();
-        
-        dlprim::Tensor x0(todp(self_c));
-        dlprim::Tensor x1(todp(other_c));
-        dlprim::Tensor y(todp(out_c));
-        dlprim::core::pointwise_operation_broadcast({x0,x1},{y},{},
-                    "y0 = x0 != x1;", 
-                    getExecutionContext(self_c));
-        
-        if (!out.is_contiguous())
-            out.copy_(out_c);
-
-        sync_if_needed(self.device());
-        return out;
-
+        return binary_op_out_tensor(self,other,out,"!=");
+    }
+    Tensor & eq_out_tensor(const Tensor & self, const Tensor & other, Tensor & out)
+    {
+        return binary_op_out_tensor(self,other,out,"==");
+    }
+    Tensor & lt_out_tensor(const Tensor & self, const Tensor & other, Tensor & out)
+    {
+        return binary_op_out_tensor(self,other,out,"<");
+    }
+    Tensor & le_out_tensor(const Tensor & self, const Tensor & other, Tensor & out)
+    {
+        return binary_op_out_tensor(self,other,out,"<=");
+    }
+    Tensor & gt_out_tensor(const Tensor & self, const Tensor & other, Tensor & out)
+    {
+        return binary_op_out_tensor(self,other,out,">");
+    }
+    Tensor & ge_out_tensor(const Tensor & self, const Tensor & other, Tensor & out)
+    {
+        return binary_op_out_tensor(self,other,out,">=");
     }
 
     // {"schema": "aten::eq.Scalar_out(Tensor self, Scalar other, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
@@ -1240,36 +1191,6 @@ using c10::DeviceType;
         sync_if_needed(self.device());
         return out;
 
-    }
-
-    // {"schema": "aten::eq.Tensor_out(Tensor self, Tensor other, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
-    Tensor & eq_out_tensor(const Tensor & self, const Tensor & other, Tensor & out)
-    {
-        GUARD;
-        Tensor self_c = self.contiguous(), out_c = out.contiguous();
-        
-        dlprim::Tensor x0(todp(self_c));
-        dlprim::Tensor y(todp(out_c));
-        double value = 0;
-        if(isCPUScalar(other,value)) {
-            dlprim::core::pointwise_operation_broadcast({x0},{y},{value},{x0.dtype()},
-                        "y0 = x0 == w0;", 
-                        getExecutionContext(self));
-        }
-        else {
-            Tensor other_c = other.contiguous();
-            
-            dlprim::Tensor x1(todp(other_c));
-            dlprim::core::pointwise_operation_broadcast({x0,x1},{y},{},
-                    "y0 = x0 == x1;", 
-                    getExecutionContext(self));
-        }
-        
-        if (!out.is_contiguous())
-            out.copy_(out_c);
-
-        sync_if_needed(self.device());
-        return out;
     }
 
     // {"schema": "aten::bitwise_and.Tensor_out(Tensor self, Tensor other, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
@@ -1338,17 +1259,7 @@ using c10::DeviceType;
     Tensor & ceil_out(const Tensor & self, Tensor & out)
     {
         GUARD;
-        Tensor self_c = self.contiguous(), out_c = out.contiguous();
-        dlprim::Tensor X = todp(self_c);
-        dlprim::Tensor Y = todp(out_c);
-        auto q = getExecutionContext(self);
-        dlprim::core::pointwise_operation({X},{Y},{},"y0 = ceil(x0);",q);
-        
-        if (!out.is_contiguous())
-            out.copy_(out_c);
-        
-        sync_if_needed(self.device());
-        return out;
+        return unitary_op(self,out,"y0 = ceil(x0);");
     }
 
     // {"schema": "aten::gelu.out(Tensor self, *, str approximate='none', Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
@@ -1557,14 +1468,21 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::leaky_relu_backward.grad_input",&ptdlprim::leaky_relu_backward_out);
       m.impl("aten::hardswish_backward",&ptdlprim::hardswish_backward);
       m.impl("aten::argmax.out",&ptdlprim::argmax_out);
-      m.impl("aten::ne.Scalar_out",&ptdlprim::ne_out);
+      
       m.impl("aten::ne.Tensor_out",&ptdlprim::ne_out_tensor);
-      m.impl("aten::eq.Scalar_out",&ptdlprim::eq_out);
       m.impl("aten::eq.Tensor_out",&ptdlprim::eq_out_tensor);
+      m.impl("aten::lt.Tensor_out",&ptdlprim::lt_out_tensor);
+      m.impl("aten::gt.Tensor_out",&ptdlprim::gt_out_tensor);
+      m.impl("aten::le.Tensor_out",&ptdlprim::le_out_tensor);
+      m.impl("aten::ge.Tensor_out",&ptdlprim::ge_out_tensor);
+
+      m.impl("aten::ne.Scalar_out",&ptdlprim::ne_out);
+      m.impl("aten::eq.Scalar_out",&ptdlprim::eq_out);
       m.impl("aten::le.Scalar_out",&ptdlprim::le_out);
       m.impl("aten::ge.Scalar_out",&ptdlprim::ge_out);
       m.impl("aten::lt.Scalar_out",&ptdlprim::lt_out);
       m.impl("aten::gt.Scalar_out",&ptdlprim::gt_out);
+
       m.impl("aten::bitwise_and.Tensor_out",&ptdlprim::bitwise_and_out);
       m.impl("aten::min",&ptdlprim::min);
       m.impl("aten::max",&ptdlprim::max);
@@ -1582,6 +1500,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::arange.start_out",&ptdlprim::arange_out);
       m.impl("aten::amax.out",&ptdlprim::amax_out);
       m.impl("aten::amin.out",&ptdlprim::amin_out);
+      m.impl("aten::round.out",&ptdlprim::round_out);
       
 }
 

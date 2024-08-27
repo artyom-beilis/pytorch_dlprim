@@ -478,8 +478,16 @@ def test_rng(dev):
     print("Dropout ok")
 
 
-
-
+def test_comp(device):
+    for name,op in [('==',torch.eq),('!=',torch.ne),('>',torch.gt),('<',torch.lt),('>=',torch.ge),('<=',torch.le)]:
+        print("Test ",name)
+        test_fwd([([20,30],-1),([1,30],-1)],lambda a,b:op(torch.round(a)*10,torch.round(b)*10).to(torch.float),device)
+        print("Test ",name, " with scalar")
+        test_fwd([([20,30],-1)],lambda a:op(torch.round(a)*10,5).to(torch.float),device)
+        print("Test ",name, " with tenspor R")
+        test_fwd([([20,30],-1)],lambda a:op(torch.round(a)*10,torch.tensor(5,dtype=torch.float32)).to(torch.float),device)
+        print("Test ",name, " with tenspor L")
+        test_fwd([([20,30],-1)],lambda a:op(torch.tensor(5,dtype=torch.float32),torch.round(a)*10).to(torch.float),device)
 
 
 if __name__ == '__main__': 
@@ -488,6 +496,7 @@ if __name__ == '__main__':
     r = p.parse_args()
     if r.device.find('ocl')==0 or r.device.find('privateuseone')==0:
         import pytorch_ocl
+    test_comp(r.device)
     test_all(r.device)
     test_concat(r.device)
     test_rng(r.device)
