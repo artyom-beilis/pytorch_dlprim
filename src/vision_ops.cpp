@@ -10,6 +10,8 @@
 #include <dlprim/core/pool.hpp>
 #include <dlprim/gpu/gemm.hpp>
 
+#include <ATen/ops/_native_multi_head_attention_cpu_dispatch.h>
+
 #include <iostream>
 namespace ptdlprim {
 
@@ -622,8 +624,135 @@ using c10::DeviceType;
         return mm_bmm_out(self,mat2,out,1);
     }
 
+    // {"schema": "aten::addmm.out(Tensor self, Tensor mat1, Tensor mat2, *, Scalar beta=1, Scalar alpha=1, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & addmm_out(const Tensor & self, const Tensor & mat1, const Tensor & mat2, const Scalar &sbeta, const Scalar & salpha, Tensor & out)
+    {
+        GUARD;
+        double alpha = salpha.toDouble();
+        double beta = sbeta.toDouble();
+        if(alpha == 1 && beta == 0) {
+            return mm_out(mat1,mat2,out);
+        }
+        Tensor p = torch::mm(mat1,mat2);
+        if(beta == 0) {
+            auto x=todp(p);
+            if(out.is_contiguous()) {
+                auto y=todp(out);
+                dlprim::core::pointwise_operation({x},{y},{alpha},
+                                          "y0 = x0*w0;",
+                                          getExecutionContext(self));
+            }
+            else {
+                dlprim::core::pointwise_operation({x},{x},{alpha},
+                                          "y0 = x0*w0;",
+                                          getExecutionContext(self));
+                out.copy_(p);
+            }
+        }
+        else {
+            dlprim::Tensor x = todp(p);
+            Tensor self_c = self.contiguous();
+            dlprim::Tensor off = todp(self_c);
+            dlprim::Tensor tgt;
+            if(out.is_contiguous()) {
+                tgt = todp(out);
+            }
+            else {
+                tgt = x;
+            }
+            dlprim::core::pointwise_operation_broadcast({x,off},{tgt},{alpha,beta},
+                    "y0 = x0 * w0 + x1 * w1;",
+                    getExecutionContext(self));
+            if(!out.is_contiguous()) {
+                out.copy_(p);
+            }
+        }
+        sync_if_needed(self.device());
+        return out;
+    }
 
+
+    // {"schema": "aten::_native_multi_head_attention.out(Tensor query, Tensor key, Tensor value, int embed_dim, int num_head, Tensor qkv_weight, Tensor qkv_bias, Tensor proj_weight, Tensor proj_bias, Tensor? mask=None, bool need_weights=True, bool average_attn_weights=True, int? mask_type=None, *, Tensor(a!) out0, Tensor(b!) out1) -> (Tensor(a!), Tensor(b!))", "dispatch": "True", "default": "True"}
+    ::std::tuple<Tensor &,Tensor &> _native_multi_head_attention_out(const Tensor & query, const Tensor & key, const Tensor & value, int64_t embed_dim, int64_t num_head, const Tensor & qkv_weight, const Tensor & qkv_bias, const Tensor & proj_weight, const Tensor & proj_bias, const ::std::optional<Tensor> & mask, bool need_weights, bool average_attn_weights, ::std::optional<int64_t> mask_type, Tensor & out0, Tensor & out1)
+    {
+        GUARD;
+        auto r = at::cpu::_native_multi_head_attention(query,key,value,embed_dim,num_head,qkv_weight,qkv_bias,proj_weight,proj_bias,mask,need_weights,average_attn_weights,mask_type);
+        out0.copy_(std::get<0>(r));
+        out1.copy_(std::get<1>(r));
+        return ::std::tuple<Tensor &,Tensor &>(out0,out1);
+    }
     
+    // {"schema": "aten::_native_multi_head_attention(Tensor query, Tensor key, Tensor value, int embed_dim, int num_head, Tensor qkv_weight, Tensor qkv_bias, Tensor proj_weight, Tensor proj_bias, Tensor? mask=None, bool need_weights=True, bool average_attn_weights=True, int? mask_type=None) -> (Tensor, Tensor)", "dispatch": "True", "default": "False"} 
+    ::std::tuple<Tensor,Tensor> _native_multi_head_attention(const Tensor & query, const Tensor & key, const Tensor & value, int64_t embed_dim, int64_t num_head, const Tensor & qkv_weight, const Tensor & qkv_bias, const Tensor & proj_weight, const Tensor & proj_bias, const ::std::optional<Tensor> & mask, bool need_weights, bool average_attn_weights, ::std::optional<int64_t> mask_type)
+    {
+        GUARD;
+        return at::cpu::_native_multi_head_attention(query,key,value,embed_dim,num_head,qkv_weight,qkv_bias,proj_weight,proj_bias,mask,need_weights,average_attn_weights,mask_type);
+    }
+
+  
+    // {"schema": "aten::_transform_bias_rescale_qkv(Tensor qkv, Tensor qkv_bias, int num_heads) -> (Tensor, Tensor, Tensor)", "dispatch": "True", "default": "False"} 
+    // compute q = (q + q_bias) / sqrt(dim_per_head), k = k + k_bias, v = v + v_bias 
+    std::tuple<Tensor, Tensor, Tensor> transform_bias_rescale_qkv(const Tensor& qkv,const Tensor& qkv_bias,const int64_t num_head) 
+    {
+        GUARD;
+        auto qkv_ = qkv.is_nested()
+            ? c10::MaybeOwned<Tensor>::owned(qkv.to_padded_tensor(0))
+            : c10::MaybeOwned<Tensor>::borrowed(qkv);
+        auto B = qkv_->size(0);
+        auto T = qkv_->size(1);
+        auto _3D = qkv_->size(2);
+        auto D = _3D / 3;
+        TORCH_CHECK(D % num_head == 0);
+        TORCH_CHECK(_3D % 3 == 0);
+        const auto dim_per_head = D / num_head;
+        
+
+        const auto qkv_contig = qkv_->expect_contiguous();
+        const auto qkv_bias_contig = qkv_bias.expect_contiguous();
+
+        //QKV[5, 7, 66] @ [66]->[3, 5, 2, 7, 11]
+         //     B T  3*D   3*dph*3      3  B  nh T dph
+
+        //auto qkv_ in  qkv_contig = ({B, T, 3, num_head, dim_per_head});
+        //auto bias_in                     ({3, num_head, dim_per_head});
+        auto q_k_v            = at::empty({3, B, num_head, T, dim_per_head}, qkv_->options());
+        auto q_k_v_same_order = at::empty({B,T,3,num_head,dim_per_head},qkv_->options());
+        // this is how to transpose the result to QKV (see below)
+        //            B,T,3,num_head,dim_per_head
+        /// {1,2}  -> B,3,T,num_head,dim_per_head
+        //  {2,3}  -> B,3,num_head,T,dim_per_head
+        //  {0,1} ->  3,B,num_head,T,dim_per_head}
+        
+        dlprim::Tensor dp_qkv = todp(*qkv_contig);
+        dlprim::Tensor dp_bias = todp(*qkv_bias_contig);
+        dlprim::Tensor dp_out = todp(q_k_v_same_order);
+        dp_qkv.reshape(dlprim::Shape(B*T,_3D));
+        dp_out.reshape(dlprim::Shape(B*T,_3D));
+        dp_bias.reshape(dlprim::Shape(_3D));
+        double scale = 1.0/std::sqrt(double(dim_per_head));
+        dlprim::core::pointwise_operation_broadcast(
+                {dp_qkv,dp_bias},{dp_out},
+                {scale,double(D)},
+                {dp_qkv.dtype(),dlprim::int64_data},
+                R"xxx(
+                    long position_d1 = index.s[1];
+                    typeof_x0 scale = position_d1 < w1 ? w0 : 1;
+                    y0 = (x0 + x1)*scale;
+                )xxx",
+                getExecutionContext(qkv),
+                false); // don't shrink broadcast to make sure we have correct dims
+        Tensor q_k_v_cont_as_q_k_v = q_k_v_same_order;
+        q_k_v_cont_as_q_k_v = torch::transpose(q_k_v_cont_as_q_k_v,1,2);
+        q_k_v_cont_as_q_k_v = torch::transpose(q_k_v_cont_as_q_k_v,2,3);
+        q_k_v_cont_as_q_k_v = torch::transpose(q_k_v_cont_as_q_k_v,0,1);
+        q_k_v.copy_(q_k_v_cont_as_q_k_v);
+        auto q_k_v_s =
+            at::native::split(q_k_v.view({3 * B, num_head, T, dim_per_head}), B, 0);
+        TORCH_INTERNAL_ASSERT_DEBUG_ONLY(q_k_v_s.size() == 3);
+        return std::make_tuple(q_k_v_s[0], q_k_v_s[1], q_k_v_s[2]);
+    }
+
+
 
 } // namespace
 
@@ -636,6 +765,10 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::avg_pool2d_backward.grad_input",&ptdlprim::avg_pool2d_backward_out);
       m.impl("aten::mm.out",&ptdlprim::mm_out);
       m.impl("aten::bmm.out",&ptdlprim::bmm_out);
+      m.impl("aten::_native_multi_head_attention.out",&ptdlprim::_native_multi_head_attention_out);
+      m.impl("aten::_native_multi_head_attention",&ptdlprim::_native_multi_head_attention);
+      m.impl("aten::addmm.out",&ptdlprim::addmm_out);
+      m.impl("aten::_transform_bias_rescale_qkv",&ptdlprim::transform_bias_rescale_qkv);
 }
 TORCH_LIBRARY_IMPL(aten, AutogradPrivateUse1, m) {
       m.impl("aten::linear",&ptdlprim::linear);

@@ -391,6 +391,26 @@ def test_all(device):
     print("Test amin all")
     test_fwd_bwd([([2,3,4,5],-1)],lambda x:torch.amin(x,keepdim=False),device)
 
+    print("Test addmm 0/1")
+    test_fwd([([2,4],-1),([2,3],-1),([3,4],-1)],lambda a,b,c:torch.addmm(a,b,c,beta=0.0,alpha=1.0),device)
+    print("Test addmm 1/1")
+    test_fwd([([2,4],-1),([2,3],-1),([3,4],-1)],lambda a,b,c:torch.addmm(a,b,c,beta=1.0,alpha=1.0),device)
+    print("Test addmm 1.0/0.5")
+    test_fwd([([2,4],-1),([2,3],-1),([3,4],-1)],lambda a,b,c:torch.addmm(a,b,c,beta=1.0,alpha=0.5),device)
+    print("Test addmm 0.5/0.5")
+    test_fwd([([2,4],-1),([2,3],-1),([3,4],-1)],lambda a,b,c:torch.addmm(a,b,c,beta=0.5,alpha=0.5),device)
+
+    print("Test addmm 0/1 cp")
+    test_fwd([([2,4],-1),([2,3],-1),([3,4],-1),([4,2],-1)],lambda a,b,c,o:torch.addmm(a,b,c,beta=0.0,alpha=1.0,out=o.T),device)
+    print("Test addmm 1/1 cp")
+    test_fwd([([2,4],-1),([2,3],-1),([3,4],-1),([4,2],-1)],lambda a,b,c,o:torch.addmm(a,b,c,beta=1.0,alpha=1.0,out=o.T),device)
+    print("Test addmm 1.0/0.5 cp")
+    test_fwd([([2,4],-1),([2,3],-1),([3,4],-1),([4,2],-1)],lambda a,b,c,o:torch.addmm(a,b,c,beta=1.0,alpha=0.5,out=o.T),device)
+    print("Test addmm 0.5/0.5 cp")
+    test_fwd([([2,4],-1),([2,3],-1),([3,4],-1),([4,2],-1)],lambda a,b,c,o:torch.addmm(a,b,c,beta=0.5,alpha=0.5,out=o.T),device)
+
+    print("Test _transform_bias_rescale_qkv")
+    test_fwd([([5,7,3*2*11],-1),([3*2*11],-1)],lambda a,b:torch.cat(torch._transform_bias_rescale_qkv(a,b,2),dim=0),device)
 
 
 def test_concat(dev):

@@ -191,7 +191,7 @@ def make_mnist_batch():
 
 
 def main(args):
-    print("Testing ",args.model)
+    print("Testing ",args.model,("inference" if args.eval and args.fwd else ""))
     def _sn():
         from shufflenetv2 import shufflenet_v2_x1_0 
         return shufflenet_v2_x1_0(pretrained=True)
@@ -270,7 +270,9 @@ if __name__ == '__main__':
             dict(model='mnasnet1_0',eval=True),
             dict(model='efficientnet_b0',eval=True),
             dict(model='efficientnet_b4',eval=True),
-            dict(model='regnet_y_400mf')
+            dict(model='regnet_y_400mf'),
+            dict(model='vit_b_16'),
+            dict(model='vit_b_16',eval=True,fwd=True)
             ]:
             if net['model'] in ocl_blacklist and (r.device.find('ocl')==0 or r.device.find('private')==0):
                 print(net['model'],"is blacklisted")
