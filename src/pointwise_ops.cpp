@@ -597,6 +597,14 @@ using c10::DeviceType;
         GUARD;
         return unitary_op(self,out,"y0=round(x0);");
     }
+    
+    // {"schema": "aten::atan.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & atan_out(const Tensor & self, Tensor & out)
+    {
+        GUARD;
+        return unitary_op(self,out,"y0=atan(x0);");
+    }
+
 
      // {"schema": "aten::abs.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & abs_out(const Tensor & self, Tensor & out)
@@ -1534,6 +1542,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::amax.out",&ptdlprim::amax_out);
       m.impl("aten::amin.out",&ptdlprim::amin_out);
       m.impl("aten::round.out",&ptdlprim::round_out);
+      m.impl("aten::atan.out",&ptdlprim::atan_out);
       m.impl("aten::maximum.out",&ptdlprim::maximum_out);
       m.impl("aten::minimum.out",&ptdlprim::minimum_out);
       

@@ -322,6 +322,9 @@ def test_all(device):
     print("GELU tanh")
     test_fwd_bwd([([4,3],-1)],lambda x:torch.nn.GELU(approximate='tanh')(x*1.0),device)
 
+    print("atan")
+    test_fwd([([4,3,5],-1)],torch.atan,device)
+
     #print("ChannelShuffle")
     #test_fwd_bwd([([3, 4, 2, 2],-1)],torch.nn.ChannelShuffle(2),device)
     print("BCE Loss")
