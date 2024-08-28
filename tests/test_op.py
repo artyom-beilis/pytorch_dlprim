@@ -264,6 +264,12 @@ def test_all(device):
     print("Sum 2d squeeze")
     test_fwd_bwd([([2,3,4],-1)],lambda x:torch.sum(x,dim=(0,2),keepdim=False),device)
 
+    print("Prod 1d")
+    test_fwd_bwd([([2,3,4],-1)],lambda x:torch.prod(x,dim=1,keepdim=True),device)
+    print("Prod 1d squeeze")
+    test_fwd_bwd([([2,3,4],-1)],lambda x:torch.prod(x,dim=1,keepdim=False),device)
+
+
     print("LogSoftmax 2d")
     test_fwd_bwd([([4,3],-1)],torch.nn.LogSoftmax(dim=1),device)
     print("LogSoftmax 3d last")

@@ -469,8 +469,12 @@ using c10::DeviceType;
         }
         return std::make_pair(full_shape,squeezed_shape);
     }
+    
+    enum class RedOp  {
+        sum,mean,prod
+    };
 
-    Tensor & sum_mean_out(const Tensor & self, OptionalIntArrayRef dim, bool keepdim, c10::optional<ScalarType> /*dtype*/, Tensor & out, bool mean)
+    Tensor & red_op_out(const Tensor & self, OptionalIntArrayRef dim, bool keepdim, c10::optional<ScalarType> /*dtype*/, Tensor & out, RedOp rop)
     {
         GUARD;
         Tensor self_c = self.contiguous(), out_c = out.contiguous();
@@ -481,7 +485,7 @@ using c10::DeviceType;
         TORCH_CHECK(r.second == Y.shape(),"Invalid output shape");
         Y.reshape(r.first);
 
-        double scale = mean ? double(Y.shape().total_size()) / double(X.shape().total_size()) : 1;
+        double scale = (rop == RedOp::mean) ? double(Y.shape().total_size()) / double(X.shape().total_size()) : 1;
 
         auto q = getExecutionContext(self);
         dlprim::Context ctx(q);
@@ -490,8 +494,9 @@ using c10::DeviceType;
                 {X.specs()},{Y.specs()},
                 0,dlprim::float_data,
                 "y0=x0;",
-                "reduce_y0 = 0;",
-                "reduce_y0 += y0;");
+                (rop == RedOp::prod ? "reduce_y0 =   1;" : "reduce_y0 =   0;"),
+                (rop == RedOp::prod ? "reduce_y0 *= y0;" : "reduce_y0 += y0;")
+        );
 
         WSGuard wsg(op->workspace(),self.device());
         op->enqueue({X},{Y},wsg.ws,{},{scale},{0},q);
@@ -508,14 +513,21 @@ using c10::DeviceType;
     Tensor & mean_out(const Tensor & self, OptionalIntArrayRef dim, bool keepdim, c10::optional<ScalarType> dtype, Tensor & out)
     {
         GUARD;
-        return sum_mean_out(self,dim,keepdim,dtype,out,true);
+        return red_op_out(self,dim,keepdim,dtype,out,RedOp::mean);
     }
     
     // {"schema": "aten::sum.IntList_out(Tensor self, int[1]? dim, bool keepdim=False, *, ScalarType? dtype=None, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & sum_out(const Tensor & self, OptionalIntArrayRef dim, bool keepdim, c10::optional<ScalarType> dtype, Tensor & out)
     {
         GUARD;
-        return sum_mean_out(self,dim,keepdim,dtype,out,false);
+        return red_op_out(self,dim,keepdim,dtype,out,RedOp::sum);
+    }
+    // {"schema": "aten::prod.int_out(Tensor self, int dim, bool keepdim=False, *, ScalarType? dtype=None, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}    
+    Tensor & prod_out(const Tensor & self, int64_t dim, bool keepdim, ::std::optional<ScalarType> dtype, Tensor & out)
+    {
+        GUARD;
+        std::vector<int64_t> dims({dim});
+        return red_op_out(self,dims,keepdim,dtype,out,RedOp::prod);
     }
 
 
@@ -1459,8 +1471,11 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::div.out",&ptdlprim::div_out);
       m.impl("aten::addcdiv.out",&ptdlprim::addcdiv_out);
       m.impl("aten::threshold_backward.grad_input",&ptdlprim::threshold_backward_out);
+      
       m.impl("aten::mean.out",&ptdlprim::mean_out);
       m.impl("aten::sum.IntList_out",&ptdlprim::sum_out);
+      m.impl("aten::prod.int_out",&ptdlprim::prod_out);
+      
       m.impl("aten::hardtanh",&ptdlprim::hardtanh);
       m.impl("aten::hardtanh_",&ptdlprim::hardtanh_);
       m.impl("aten::hardtanh_backward",&ptdlprim::hardtanh_backward);
