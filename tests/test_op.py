@@ -487,6 +487,21 @@ def test_rng(dev):
     print("Dropout ok")
 
 
+def test_logical(device):
+    l_bool_int = [
+            ('&',lambda a,b:(a&b)),
+            ('|',lambda a,b:(a|b)),
+            ('^',lambda a,b:(a^b)),
+            ('~',lambda a,b:(~a))]
+    for with_bool,cases in [(True,l_bool_int)]:
+        for name,op in cases:
+            print("Test ",name)
+            test_fwd([([20,30],10),([1,30],10)],lambda a,b:op(a-5,a-5),device)
+            if with_bool:
+                print("Test ",name, " with bool")
+                test_fwd([([20,30],10),([1,30],10)],lambda a,b:op(a>5,a>5).to(torch.float32),device)
+
+
 def test_comp(device):
     l1 = [("maximum",torch.maximum),("minimum",torch.minimum)]
     l2 = [('==',torch.eq),('!=',torch.ne),('>',torch.gt),('<',torch.lt),('>=',torch.ge),('<=',torch.le)]
@@ -509,6 +524,7 @@ if __name__ == '__main__':
     r = p.parse_args()
     if r.device.find('ocl')==0 or r.device.find('privateuseone')==0:
         import pytorch_ocl
+    test_logical(r.device)
     test_comp(r.device)
     test_all(r.device)
     test_concat(r.device)

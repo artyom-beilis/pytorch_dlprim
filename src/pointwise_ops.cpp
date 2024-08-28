@@ -24,6 +24,11 @@ using torch::autograd::AutogradContext;
 using c10::Device;
 using c10::DeviceType;
 
+    bool is_integer(Tensor const &t,bool include_bool)
+    {
+        return c10::isIntegralType(t.dtype().toScalarType(),include_bool);
+    }
+
 
     bool isCPUScalar(Tensor const &other, double &value)
     {
@@ -1221,21 +1226,31 @@ using c10::DeviceType;
     Tensor & bitwise_and_out(const Tensor & self, const Tensor & other, Tensor & out)
     {
         GUARD;
-        Tensor self_c  = self.contiguous(), out_c = out.contiguous(),
-               other_c = other.contiguous();
-        
-        dlprim::Tensor x0(todp(self_c)),x1(todp(other_c)),y0(todp(out_c));
-        dlprim::core::pointwise_operation_broadcast(
-                {x0,x1},{y0},{},
-                (self.dtype() == c10::kBool ? "y0 = x0 && x1;" : "y0 = x0 & x1;"),
-                getExecutionContext(self));
-        
-        if (!out.is_contiguous())
-            out.copy_(out_c);
-        
-        sync_if_needed(self.device());
-        return out;
+        TORCH_CHECK(is_integer(self,true) && is_integer(other,true),"& is not valid for floating point");
+        return binary_op_out_tensor(self,other,out,(self.dtype() == c10::kBool ? "&&" : "&"));
     }
+    // {"schema": "aten::bitwise_or.Tensor_out(Tensor self, Tensor other, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & bitwise_or_out(const Tensor & self, const Tensor & other, Tensor & out)
+    {
+        GUARD;
+        TORCH_CHECK(is_integer(self,true) && is_integer(other,true),"| is not valid for floating point");
+        return binary_op_out_tensor(self,other,out,(self.dtype() == c10::kBool ? "||" : "|"));
+    }
+    // {"schema": "aten::bitwise_xor.Tensor_out(Tensor self, Tensor other, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & bitwise_xor_out(const Tensor & self, const Tensor & other, Tensor & out)
+    {
+        GUARD;
+        TORCH_CHECK(is_integer(self,true) && is_integer(other,true),"^ is not valid for floating point");
+        return binary_op_out_tensor(self,other,out,(self.dtype() == c10::kBool ? "!=" : "^"));
+    }
+    // {"schema": "aten::bitwise_not.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & bitwise_not_out(const Tensor & self, Tensor & out)
+    {
+        GUARD;
+        TORCH_CHECK(is_integer(self,true),"~ is valid for integer types");
+        return unitary_op(self,out,(self.dtype() == c10::kBool ? "y0 = !x0;" : "y0 = ~x0;"));
+    }
+
 
     // {"schema": "aten::clamp.out(Tensor self, Scalar? min=None, Scalar? max=None, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & clamp_out(const Tensor & self, const c10::optional<Scalar> & min, const c10::optional<Scalar> & max, Tensor & out)
@@ -1525,6 +1540,10 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::gt.Scalar_out",&ptdlprim::gt_out);
 
       m.impl("aten::bitwise_and.Tensor_out",&ptdlprim::bitwise_and_out);
+      m.impl("aten::bitwise_or.Tensor_out",&ptdlprim::bitwise_or_out);
+      m.impl("aten::bitwise_xor.Tensor_out",&ptdlprim::bitwise_xor_out);
+      m.impl("aten::bitwise_not.out",&ptdlprim::bitwise_not_out);
+
       m.impl("aten::min",&ptdlprim::min);
       m.impl("aten::max",&ptdlprim::max);
       m.impl("aten::clamp.out",&ptdlprim::clamp_out);
