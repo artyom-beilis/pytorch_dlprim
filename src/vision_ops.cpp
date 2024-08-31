@@ -6,6 +6,7 @@
 #include <dlprim/core/ip.hpp>
 #include <dlprim/core/bn.hpp>
 #include <dlprim/core/conv.hpp>
+#include <dlprim/core/interpolate.hpp>
 #include <dlprim/core/bias.hpp>
 #include <dlprim/core/pool.hpp>
 #include <dlprim/gpu/gemm.hpp>
@@ -752,6 +753,81 @@ using c10::DeviceType;
         return std::make_tuple(q_k_v_s[0], q_k_v_s[1], q_k_v_s[2]);
     }
 
+    // {"schema": "aten::upsample_nearest2d.out(Tensor self, SymInt[2] output_size, float? scales_h=None, float? scales_w=None, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & interpolate_2d_out_internal(const Tensor & self, c10::SymIntArrayRef /*output_size*/, ::std::optional<double> scales_h, ::std::optional<double> scales_w, Tensor & out,dlprim::InterpolateType method,bool align_c=false)
+    {
+        GUARD;
+        Tensor self_c = self.contiguous();
+        Tensor out_c = out.contiguous();
+        double scale_h = scales_h ? *scales_h : -1;
+        double scale_w = scales_w ? *scales_w : -1;
+        dlprim::Tensor x = todp(self_c);
+        dlprim::Tensor y = todp(out_c);
+        dlprim::core::interpolate2d(x,y,scale_h,scale_w,method,align_c,getExecutionContext(self));
+        if(!out.is_contiguous())
+            out.copy_(out_c);
+        sync_if_needed(self.device());
+        return out;
+    }
+
+    // {"schema": "aten::upsample_nearest2d_backward.grad_input(Tensor grad_output, SymInt[2] output_size, SymInt[4] input_size, float? scales_h=None, float? scales_w=None, *, Tensor(a!) grad_input) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & interpolate_2d_backward_out_internal(const Tensor & grad_output, c10::SymIntArrayRef /*output_size*/, c10::SymIntArrayRef /*input_size*/, ::std::optional<double> scales_h, ::std::optional<double> scales_w, Tensor & grad_input,dlprim::InterpolateType method,bool align_c=false)
+    {
+        GUARD;
+        Tensor grad_output_c = grad_output.contiguous();
+        Tensor grad_input_c  = grad_input.contiguous();
+        double scale_h = scales_h ? *scales_h : -1;
+        double scale_w = scales_w ? *scales_w : -1;
+        dlprim::Tensor dx = todp(grad_input_c);
+        dlprim::Tensor dy = todp(grad_output_c);
+        dlprim::core::interpolate2d_backward(dx,dy,scale_h,scale_w,method,align_c,0.0,getExecutionContext(grad_output));
+        if(!grad_input.is_contiguous())
+            grad_input.copy_(grad_input_c);
+        sync_if_needed(grad_output.device());
+        return grad_input;
+    }
+
+    // {"schema": "aten::upsample_nearest2d.out(Tensor self, SymInt[2] output_size, float? scales_h=None, float? scales_w=None, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & upsample_nearest2d_out(const Tensor & self, c10::SymIntArrayRef output_size, ::std::optional<double> scales_h, ::std::optional<double> scales_w, Tensor & out)
+    {
+        GUARD;
+        return interpolate_2d_out_internal(self,output_size,scales_h,scales_w,out,dlprim::InterpolateType::nearest);
+    }
+    // {"schema": "aten::upsample_nearest2d_backward.grad_input(Tensor grad_output, SymInt[2] output_size, SymInt[4] input_size, float? scales_h=None, float? scales_w=None, *, Tensor(a!) grad_input) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & upsample_nearest2d_backward_out(const Tensor & grad_output, c10::SymIntArrayRef output_size, c10::SymIntArrayRef input_size, ::std::optional<double> scales_h, ::std::optional<double> scales_w, Tensor & grad_input)
+    {
+        GUARD;
+        return interpolate_2d_backward_out_internal(grad_output,output_size,input_size,scales_h,scales_w,grad_input,dlprim::InterpolateType::nearest);
+    }
+    
+    // {"schema": "aten::_upsample_nearest_exact2d.out(Tensor self, SymInt[2] output_size, float? scales_h=None, float? scales_w=None, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}  
+    Tensor & _upsample_nearest_exact2d_out(const Tensor & self, c10::SymIntArrayRef output_size, ::std::optional<double> scales_h, ::std::optional<double> scales_w, Tensor & out)
+    {
+        GUARD;
+        return interpolate_2d_out_internal(self,output_size,scales_h,scales_w,out,dlprim::InterpolateType::nearest_exact);
+    }
+    
+    // {"schema": "aten::_upsample_nearest_exact2d_backward.grad_input(Tensor grad_output, SymInt[2] output_size, SymInt[4] input_size, float? scales_h=None, float? scales_w=None, *, Tensor(a!) grad_input) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & _upsample_nearest_exact2d_backward_out(const Tensor & grad_output, c10::SymIntArrayRef output_size, c10::SymIntArrayRef input_size, ::std::optional<double> scales_h, ::std::optional<double> scales_w, Tensor & grad_input)
+    {
+        GUARD;
+        return interpolate_2d_backward_out_internal(grad_output,output_size,input_size,scales_h,scales_w,grad_input,dlprim::InterpolateType::nearest_exact);
+    }
+    
+    // {"schema": "aten::upsample_bilinear2d.out(Tensor self, SymInt[2] output_size, bool align_corners, float? scales_h=None, float? scales_w=None, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}    
+    Tensor & upsample_bilinear2d_out(const Tensor & self, c10::SymIntArrayRef output_size, bool align_corners, ::std::optional<double> scales_h, ::std::optional<double> scales_w, Tensor & out)
+    {
+        GUARD;
+        return interpolate_2d_out_internal(self,output_size,scales_h,scales_w,out,dlprim::InterpolateType::bilinear,align_corners);
+    }
+    
+    // {"schema": "aten::upsample_bilinear2d_backward.grad_input(Tensor grad_output, SymInt[2] output_size, SymInt[4] input_size, bool align_corners, float? scales_h=None, float? scales_w=None, *, Tensor(a!) grad_input) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & upsample_bilinear2d_backward_out(const Tensor & grad_output, c10::SymIntArrayRef output_size, c10::SymIntArrayRef input_size, bool align_corners, ::std::optional<double> scales_h, ::std::optional<double> scales_w, Tensor & grad_input)
+    {
+        GUARD;
+        return interpolate_2d_backward_out_internal(grad_output,output_size,input_size,scales_h,scales_w,grad_input,dlprim::InterpolateType::bilinear,align_corners);
+    }
+
 
 
 } // namespace
@@ -769,6 +845,12 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::_native_multi_head_attention",&ptdlprim::_native_multi_head_attention);
       m.impl("aten::addmm.out",&ptdlprim::addmm_out);
       m.impl("aten::_transform_bias_rescale_qkv",&ptdlprim::transform_bias_rescale_qkv);
+      m.impl("aten::upsample_nearest2d.out",&ptdlprim::upsample_nearest2d_out);
+      m.impl("aten::upsample_nearest2d_backward.grad_input",&ptdlprim::upsample_nearest2d_backward_out);
+      m.impl("aten::_upsample_nearest_exact2d.out",&ptdlprim::_upsample_nearest_exact2d_out);
+      m.impl("aten::_upsample_nearest_exact2d_backward.grad_input",&ptdlprim::_upsample_nearest_exact2d_backward_out);
+      m.impl("aten::upsample_bilinear2d.out",&ptdlprim::upsample_bilinear2d_out);
+      m.impl("aten::upsample_bilinear2d_backward.grad_input",&ptdlprim::upsample_bilinear2d_backward_out);
 }
 TORCH_LIBRARY_IMPL(aten, AutogradPrivateUse1, m) {
       m.impl("aten::linear",&ptdlprim::linear);

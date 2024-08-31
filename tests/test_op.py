@@ -123,9 +123,6 @@ def test_fwd_bwd(inputs,call,device,randgen=torch.randn):
     y_cpu = call(*xs_cpu)
     y_dev = call(*xs_dev)
 
-    print(y_cpu.shape)
-    print(y_dev.shape)
-
     if y_cpu.shape:
         with torch.no_grad():
             dy_cpu = torch.randn(y_cpu.shape)
@@ -421,6 +418,29 @@ def test_all(device):
     print("Test _transform_bias_rescale_qkv")
     test_fwd([([5,7,3*2*11],-1),([3*2*11],-1)],lambda a,b:torch.cat(torch._transform_bias_rescale_qkv(a,b,2),dim=0),device)
 
+    print("Test interpolate nearest factors")
+    test_fwd_bwd([([2,3,10,15],-1)],lambda x:torch.nn.functional.interpolate(x,scale_factor=(2.3,1.5),mode='nearest'),device)
+
+    print("Test interpolate nearest size")
+    test_fwd_bwd([([2,3,10,15],-1)],lambda x:torch.nn.functional.interpolate(x,size=(20,20),mode='nearest'),device)
+
+    print("Test interpolate nearest factors")
+    test_fwd_bwd([([2,3,10,15],-1)],lambda x:torch.nn.functional.interpolate(x,scale_factor=(2.3,1.5),mode='nearest-exact'),device)
+
+    print("Test interpolate nearest size")
+    test_fwd_bwd([([2,3,10,15],-1)],lambda x:torch.nn.functional.interpolate(x,size=(20,20),mode='nearest-exact'),device)
+
+    print("Test interpolate bilinear factors")
+    test_fwd_bwd([([2,3,10,15],-1)],lambda x:torch.nn.functional.interpolate(x,scale_factor=(2.3,1.5),mode='bilinear'),device)
+
+    print("Test interpolate bilinear size")
+    test_fwd_bwd([([2,3,10,15],-1)],lambda x:torch.nn.functional.interpolate(x,size=(20,20),mode='bilinear'),device)
+
+    print("Test interpolate bilinear factors align_corners")
+    test_fwd_bwd([([2,3,10,15],-1)],lambda x:torch.nn.functional.interpolate(x,scale_factor=(2.3,1.5),mode='bilinear',align_corners = True),device)
+
+    print("Test interpolate bilinear size align corners")
+    test_fwd_bwd([([2,3,10,15],-1)],lambda x:torch.nn.functional.interpolate(x,size=(20,20),mode='bilinear',align_corners=True),device)
 
 def test_concat(dev):
     print("Test concat")
