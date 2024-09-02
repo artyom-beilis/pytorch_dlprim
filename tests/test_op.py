@@ -536,6 +536,14 @@ def test_comp(device):
             test_fwd([([20,30],-1)],lambda a:op(torch.round(a)*10,torch.tensor(5,dtype=torch.float32)).to(torch.float),device)
             print("Test ",name, " with tenspor L")
             test_fwd([([20,30],-1)],lambda a:op(torch.tensor(5,dtype=torch.float32),torch.round(a)*10).to(torch.float),device)
+    for name,op in [('>',lambda x:x*3>0.5),
+               ('<',lambda x:x*3<0.5),
+               ('==',lambda x:torch.round(x*3)==1),
+               ('!=',lambda x:torch.round(x*3)==1),
+               ('<=',lambda x:torch.round(x*3)>=1),
+               ('>=',lambda x:torch.round(x*3)<=1)]:
+        print(f" Testng x{name}val")
+        test_fwd([([4,4],-1)],lambda x:op(x).to(torch.float32),device=device)
 
 
 if __name__ == '__main__': 

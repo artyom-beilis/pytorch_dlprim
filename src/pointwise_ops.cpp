@@ -241,8 +241,8 @@ using c10::DeviceType;
         dlprim::Tensor x0=todp(self_c);
         dlprim::Tensor y0=todp(out_c);
         float w0 = other.toDouble();
-        dlprim::core::pointwise_operation_broadcast({x0},{y0},{w0},
-                                      "y0 = x0 " + op + " w0 ? 1 : 0;",
+        dlprim::core::pointwise_operation_broadcast({x0},{y0},{w0},{dlprim::float_data},
+                                      "y0 = (x0 " + op + " w0) ? 1 : 0;" ,
                                       getExecutionContext(self));
         
         if (!out.is_contiguous())
