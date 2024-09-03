@@ -31,6 +31,7 @@ Following torchvision networks were validated:
 | `efficientnet_b0`     |                                           |
 | `efficientnet_b4`     |                                           |
 | `regnet_y_400mf`      |                                           |
+| `vit_b_16`            |                                           |
 
 
 Calculations validated agaist CPU reference for both forward and backward popogation.
@@ -39,9 +40,9 @@ Calculations validated agaist CPU reference for both forward and backward popoga
 
 DLPrimitves itself is tested on following devies: 
 
-- Nvidia: gtx 960
-- AMD: rx 6600 xt and in past rx 560
-- Intel: HD530
+- AMD rx 6600XT with ROCM drivers, rx560 16cu with AMDGPU-pro drivers
+- Nvidia: GTX 960
+- Intel:  HD 530, UHD 770, Arc A380
 
 
 # Installation
