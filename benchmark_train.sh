@@ -1,14 +1,16 @@
-device='ocl:0'
-base="$1"
+if [ "$1" == "" ] || [ "$2" == "" ] || [ "$3" == "" ] 
+then
+    echo "/benchmark_train.sh device name (small|large)"
+    exit 1
+fi
+device="$1"
+name="$2"
+size="$3"
+base=./dlprimitives
 to=60
 
 
-if [ "$2" != "" ]
-then
-        device="$2"
-fi
-
-if true
+if [ "$size" == large ]
 then
     nst='alexnet,64 
         resnet18,64 
@@ -24,7 +26,8 @@ then
         mnasnet1_0,32 
         efficientnet_b0,32 
         regnet_y_400mf,64'
-else
+elif [ "$size" == small ]
+then
     nst='alexnet,64 
         resnet18,64 
         resnet50,16 
@@ -39,12 +42,15 @@ else
         mnasnet1_0,16 
         efficientnet_b0,16 
         regnet_y_400mf,32'
+else
+    echo "Invalid size"
 fi
+
 for netb in $nst
 do
     net=$(echo $netb | cut -d, -f1)
     batch=$(echo $netb | cut -d, -f2)
     printf "%20s %2d " $net $batch
     timeout $to python $base/tools/validate_network.py --train --model=$net --benchmark --batch=$batch --device=$device | tail -n 1 | awk '{print $4}'
-done | tee log-train-$(echo $device | tr ':' '_').txt
+done | tee log-train-$name-$size-$(echo $device | tr ':' '_').txt
 
