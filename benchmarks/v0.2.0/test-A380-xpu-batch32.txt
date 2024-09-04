@@ -1,0 +1,14 @@
+alexnet 25.835
+resnet18 55.647
+resnet50 145.842
+convnext_small 294.405
+vgg16 333.954
+densenet161 315.407
+mobilenet_v2 51.589
+mobilenet_v3_small 26.508
+mobilenet_v3_large 52.328
+resnext50_32x4d 169.194
+wide_resnet50_2 321.014
+mnasnet1_0 51.785
+efficientnet_b0 88.131
+regnet_y_400mf 56.503
