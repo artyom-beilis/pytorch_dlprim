@@ -414,6 +414,7 @@ def test_all(device):
     test_fwd([([2,4],-1),([2,3],-1),([3,4],-1),([4,2],-1)],lambda a,b,c,o:torch.addmm(a,b,c,beta=1.0,alpha=0.5,out=o.T),device)
     print("Test addmm 0.5/0.5 cp")
     test_fwd([([2,4],-1),([2,3],-1),([3,4],-1),([4,2],-1)],lambda a,b,c,o:torch.addmm(a,b,c,beta=0.5,alpha=0.5,out=o.T),device)
+    
 
     print("Test _transform_bias_rescale_qkv")
     test_fwd([([5,7,3*2*11],-1),([3*2*11],-1)],lambda a,b:torch.cat(torch._transform_bias_rescale_qkv(a,b,2),dim=0),device)
@@ -441,6 +442,13 @@ def test_all(device):
 
     print("Test interpolate bilinear size align corners")
     test_fwd_bwd([([2,3,10,15],-1)],lambda x:torch.nn.functional.interpolate(x,size=(20,20),mode='bilinear',align_corners=True),device)
+
+    print("Test pow 2")
+    test_fwd([([2,4],-1)],lambda a:torch.abs(a)**2.0,device)
+
+    print("Test pow 1.3")
+    test_fwd([([2,4],-1)],lambda a:torch.abs(a)**1.3,device)
+
 
 def test_concat(dev):
     print("Test concat")

@@ -295,6 +295,25 @@ using c10::DeviceType;
         return unitary_op(self,out,"y0 = sqrt(x0);");
     }
 
+    // {"schema": "aten::pow.Tensor_Scalar_out(Tensor self, Scalar exponent, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & pow_out(const Tensor & self, const Scalar & exponent, Tensor & out)
+    {
+        GUARD;
+        Tensor self_c = self.contiguous();
+        Tensor out_c = out.contiguous();
+        double val = exponent.toDouble();
+        dlprim::Tensor x = todp(self_c);
+        dlprim::Tensor y = todp(out_c);
+        
+        dlprim::core::pointwise_operation({x},{y},{val},"y0=pow(x0,w0);",getExecutionContext(self));
+
+        if(!out.is_contiguous())
+            out.copy_(out_c);
+        sync_if_needed(self.device());
+        return out;
+    }
+
+
     // {"schema": "aten::div.out(Tensor self, Tensor other, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & div_out(const Tensor & self, const Tensor & other, Tensor & out)
     {
@@ -1564,7 +1583,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::atan.out",&ptdlprim::atan_out);
       m.impl("aten::maximum.out",&ptdlprim::maximum_out);
       m.impl("aten::minimum.out",&ptdlprim::minimum_out);
-      
+      m.impl("aten::pow.Tensor_Scalar_out",&ptdlprim::pow_out);
 }
 
 TORCH_LIBRARY_IMPL(aten, AutogradPrivateUse1, m) {
