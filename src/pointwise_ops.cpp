@@ -1473,30 +1473,83 @@ using c10::DeviceType;
         return binary_op_out_tensor(self,other,out,"","y0 = min(left,right); ");
     }
 
-    
-
-    
-   
-#if 0 
-     // {"schema": "aten::upsample_bilinear2d.out(Tensor self, int[2] output_size, bool align_corners, float? scales_h=None, float? scales_w=None, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
-    Tensor & upsample_bilinear2d_out(const Tensor & self, IntArrayRef output_size, bool align_corners, c10::optional<double> scales_h, c10::optional<double> scales_w, Tensor & out)
+   // {"schema": "aten::log_sigmoid_forward.output(Tensor self, *, Tensor(a!) output, Tensor(b!) buffer) -> (Tensor(a!), Tensor(b!))", "dispatch": "True", "default": "False"
+    ::std::tuple<Tensor &,Tensor &> log_sigmoid_forward_out(const Tensor & self, Tensor & output, Tensor & buffer)
     {
         GUARD;
-        dlprim::Tensor X=todp(self.contiguous());
-        dlprim::Tensor Y=todp(out);
-        TORCH_CHECK(!scales_h && !scales_w,"Not implemented")
-        TORCH_CHECK(!align_corners,"Not implemented");
-        TORCH_CHECK(output_size[0] == int64_t(Y.shape()[2]));
-        TORCH_CHECK(output_size[1] == int64_t(Y.shape()[3]));
-        TORCH_CHECK(output_size[0] % X.shape()[2] == 0);
-        TORCH_CHECK(output_size[1] % X.shape()[3] == 0);
-        TORCH_CHECK(output_size[1] / X.shape()[3] == output_size[0] / X.shape()[2],"Scale need to be the same")
-        int factor = output_size[1] / X.shape()[2];
-        dlprim::core::upscale2d_forward(dlprim::core::upscale_linear,factor,X,Y,0,getExecutionContext(out));
+        Tensor self_c = self.contiguous(), output_c = output.contiguous(), buffer_c = buffer.contiguous();
+        dlprim::Tensor x=todp(self_c), out = todp(output_c), buf = todp(buffer_c);
+        dlprim::core::pointwise_operation({x},{out,buf},{},
+                    R"xxx(
+                    y1 = exp(-fabs(x0));
+                    y0 = min((dtype)(0),x0) - log1p(y1);
+                    )xxx",
+                    getExecutionContext(self));
+        
+        if(!output.is_contiguous())
+            output.copy_(output_c);
+
+        if(!buffer.is_contiguous())
+            buffer.copy_(buffer_c);
+
         sync_if_needed(self.device());
-        return out;
+        return ::std::tuple<Tensor &,Tensor &>(output,buffer);
+
     }
-#endif
+
+    /// {"schema": "aten::log_sigmoid_forward(Tensor self) -> (Tensor output, Tensor buffer)", "dispatch": "True", "default": "False"}
+    ::std::tuple<Tensor,Tensor> log_sigmoid_forward(const Tensor & self)
+    {
+        GUARD;
+        Tensor out = at::empty_like(self);
+        Tensor buffer = at::empty_like(self);
+        
+        log_sigmoid_forward_out(self,out,buffer);
+        return ::std::tuple<Tensor,Tensor>(out,buffer);
+    }
+    
+    // {"schema": "aten::log_sigmoid_backward.grad_input(Tensor grad_output, Tensor self, Tensor buffer, *, Tensor(a!) grad_input) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor & log_sigmoid_backward_out(const Tensor & grad_output, const Tensor & self, const Tensor & buffer, Tensor & grad_input)
+    {
+        GUARD;
+        Tensor grad_output_c = grad_output.contiguous();
+        Tensor self_c = self.contiguous();
+        Tensor buffer_c = buffer.contiguous();
+        Tensor grad_input_c = grad_input.contiguous();
+
+        dlprim::Tensor dy = todp(grad_output_c);
+        dlprim::Tensor x = todp(self_c);
+        dlprim::Tensor buf = todp(buffer_c);
+        dlprim::Tensor dx = todp(grad_input_c);
+
+        dlprim::core::pointwise_operation({x,buf,dy},{dx},{},
+                    R"xxx(
+                    int is_negative = x0 < 0;
+                    dtype maxd = is_negative ? 1.0f: 0.0f;
+                    dtype s = is_negative ? 1.0f: -1.0f;
+                    y0 = (maxd - s * (x1 / ((dtype)(1) + x1))) * x2;
+                    )xxx",
+                    getExecutionContext(self));
+        
+        if(!grad_input.is_contiguous())
+            grad_input.copy_(grad_input_c);;
+
+        sync_if_needed(self.device());
+        return grad_input;
+    }
+    // {"schema": "aten::log_sigmoid_backward(Tensor grad_output, Tensor self, Tensor buffer) -> Tensor", "dispatch": "True", "default": "False"}
+    Tensor log_sigmoid_backward(const Tensor & grad_output, const Tensor & self, const Tensor & buffer)
+    {
+        GUARD;
+        Tensor grad_input = at::empty_like(grad_output);
+        log_sigmoid_backward_out(grad_output,self,buffer,grad_input);
+        return grad_input;
+    }
+
+
+  
+
+    
 
 } // namespace
 
@@ -1584,6 +1637,10 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::maximum.out",&ptdlprim::maximum_out);
       m.impl("aten::minimum.out",&ptdlprim::minimum_out);
       m.impl("aten::pow.Tensor_Scalar_out",&ptdlprim::pow_out);
+      m.impl("aten::log_sigmoid_forward",&ptdlprim::log_sigmoid_forward);
+      m.impl("aten::log_sigmoid_forward.output",&ptdlprim::log_sigmoid_forward_out);
+      m.impl("aten::log_sigmoid_backward.grad_input", &ptdlprim::log_sigmoid_backward_out);
+      m.impl("aten::log_sigmoid_backward", &ptdlprim::log_sigmoid_backward);
 }
 
 TORCH_LIBRARY_IMPL(aten, AutogradPrivateUse1, m) {

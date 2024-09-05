@@ -449,6 +449,9 @@ def test_all(device):
     print("Test pow 1.3")
     test_fwd([([2,4],-1)],lambda a:torch.abs(a)**1.3,device)
 
+    print("Test log_sigmoid_forward")
+    test_fwd_bwd([([2,4],-1)],nn.LogSigmoid(),device)
+
 
 def test_concat(dev):
     print("Test concat")
