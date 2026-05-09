@@ -28,6 +28,7 @@ CPMAddPackage(
         "BUILD_CORE_ONLY ON"
         "BUILD_EXAMPLES OFF"
         "BUILD_TESTING OFF"
+        "DLPRIM_STATIC_BUILD ON"
 )
 
 find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
@@ -87,18 +88,7 @@ else()
 	 
 endif()
 
-	
-
-
-foreach(PYNAME __init__.py)
-    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/python/pytorch_ocl/${PYNAME} "${CMAKE_BINARY_DIR}/pytorch_ocl/${PYNAME}" COPYONLY)
-    install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/python/pytorch_ocl/${PYNAME} DESTINATION python/pytorch_ocl)
-endforeach()
-
-install(TARGETS pt_ocl 
-		LIBRARY DESTINATION python/pytorch_ocl
-		RUNTIME DESTINATION python/pytorch_ocl
-	)
+install(TARGETS pt_ocl DESTINATION pytorch_ocl)
 
 # Add C++ examples
 if(BUILD_CPLUS_EXAMPLE)
