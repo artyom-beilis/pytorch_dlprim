@@ -1,100 +1,69 @@
-## In the nutshell
+## In a nutshell
 
-- Setup pip virtual enviromnet with _CPU_ version of pytorch. Supported pytorch version are 2.4 and above. Also pytorch 1.13 is supprted.
-- Build dlprim\_backend and install at location you want
-- import `pytorch_ocl` and use `ocl` device instead of `cuda`
+- Setup a python environment (using `uv` is recommended).
+- Build the project using `uv build` or `pip install .`.
+- The build system uses **CPM (CMake Package Manager)** to automatically fetch dependencies like `dlprimitives` and OpenCL headers.
+- import `pytorch_ocl` and use `ocl` device instead of `cuda`.
 
-## Now in details
+## Dependencies
 
-1.  Setup pip virtual environment and install CPU version of pytorch - 2.4 is recommended. Pytorch 1.13 is still supported.
+The following dependencies are automatically handled by the build system via CPM:
+- **dlprimitives**: Core deep learning primitives for OpenCL.
+- **OpenCL-Headers**: Official Khronos OpenCL headers.
+- **OpenCL-CLHPP**: Official Khronos OpenCL C++ headers.
 
-    Install CPU variant since you don't need CUDA support for OpenCL backend to work.
+You still need to have:
+- **OpenCL Drivers**: Ensure your GPU/CPU has OpenCL drivers installed (e.g., `intel-opencl-icd`, `rocm-opencl-runtime`, or NVIDIA drivers).
+- **SQLite3**: (Recommended) For kernel caching.
 
-2.  Make sure you have OpenCL headers and library. It should include `opencl.hpp` or`cl2.hpp` - not the old one `cl.hpp`
+## Build Optimization
 
-3.  It is strongly recommended to have SQLite3 library and headers avalible as well, it would improve startup times by caching OpenCL kernels on disk.
+- **CPM Cache**: To avoid downloading dependencies for every new build directory, it is recommended to set the `CPM_SOURCE_CACHE` environment variable:
+  ```bash
+  export CPM_SOURCE_CACHE=$HOME/.cache/CPM
+  ```
 
-4. Clone The repository
+## Building on Linux / macOS / Windows
 
-        git clone --recurse-submodules https://github.com/artyom-beilis/pytorch_dlprim.git
+The recommended way to build and install is using `uv`:
 
-5.  Build the backend.
+1.  **Clone the repository**:
+    ```bash
+    git clone https://github.com/artyom-beilis/pytorch_dlprim.git
+    cd pytorch_dlprim
+    ```
 
-## Building the on Linux
+2.  **Build the wheel**:
+    ```bash
+    uv build
+    ```
 
-Make sure you are in the virtual environment
+3.  **Install the wheel**:
+    ```bash
+    uv pip install dist/pytorch_ocl-0.1.0-*.whl
+    ```
 
-	mkdir build
-	cd build
-	cmake -DCMAKE_PREFIX_PATH=$VIRTUAL_ENV/lib/python3.10/site-packages/torch/share/cmake/Torch -DCMAKE_INSTALL_PREFIX=/path/to/install/location ..
-	make
-    make install
+4.  **Verify the installation**:
+    ```bash
+    python mnist.py --device ocl:0
+    ```
 
-Note: if you use python version that is different from 3.10 just fix the path above
+### Manual CMake Build (Advanced)
 
-Test it runs:
+If you prefer building manually with CMake:
 
-    export PYTHONPATH=/path/to/install/location/python
-	python mnist.py --device ocl:0
+```bash
+mkdir build
+cd build
+cmake .. -DCMAKE_PREFIX_PATH=/path/to/your/torch/cmake -DCMAKE_INSTALL_PREFIX=/path/to/install
+make -j$(nproc)
+make install
+```
 
-If you want to test it in build environment use `export PYTHONPATH=build`
+## Troubleshooting
 
-Note: for pytorch 1.13 use privateuseone device instead of ocl
+### OpenCL not found
+If CMake fails to find OpenCL, ensure the OpenCL library is in your system's library path. On Linux, this is typically `/usr/lib/libOpenCL.so`.
 
-## Building on Windows
-
-It was tested using MSVC 2022, pytorch 2.4, python 3.12 with ninja build tool. 
-
-### Dependencies
-
-Organize your dependencies directory:
-
-
--   Download ninja from https://ninja-build.org/ it would make the life much easier. All instructions here refer to use of Ninja build tool
--   You will nead OpenCL headers and `64` import library. You can get them here: https://github.com/KhronosGroup/OpenCL-SDK/releases
--   SQLite3 is strongly recommended. I recommend to a simple static build and use it:
-
-    Download sqlite-amalgamation-XXXXX.zip file from https://www.sqlite.org/download.html, open "x64 native tool command prompt" shell and 
-    complile the library:
-
-        cl /c /EHsc sqlite3.c
-        lib sqlite3.obj
-    
-    Now you have sqlite3.lib and sqlite3.h/sqlite3ext.h you need for build
-
-Put all the dependencies in a layout you can use with ease, something like:
-
-    c:\deps
-	c:\deps\include\
-	c:\deps\include\CL\opencl.hpp
-	c:\deps\include\sqlite3.h
-	...
-	c:\deps\lib\
-	c:\deps\lib\OpenCL.lib
-	c:\deps\lib\sqlite3.lib
-
-Addtionally find the location of your python installation, for example `c:\Python\Python312`, you'll need to point to its location in CMake to make sure it find
-Make sure you put there 64 release versions only.
-
-Setup virtual pip environment with pytorch. Lets assume you put it into `c:\venv\torch`
-
-Open "x64 Native Tools Command Prompt for VS 2022" and activate virtual environment by running `c:\venv\torch\Scripts\activate` 
-Change current directory to location of the `pytorch_dlprim` project
-
-And run:
-
-    mkdir build
-	cd build
-	cmake -DCMAKE_PREFIX_PATH=%VIRTUAL_ENV%\Lib\site-packages\torch\share\cmake\Torch -DCMAKE_BUILD_TYPE=RelWithDebInfo  -DCMAKE_C_COMPILER="cl.exe" -DCMAKE_CXX_COMPILER="cl.exe" -G Ninja -DCMAKE_INCLUDE_PATH="c:\deps\include\include;C:\Python\Python312\include" -DCMAKE_LIBRARY_PATH="c:\deps\lib;C:\Python\Python312\Libs"  -DCMAKE_INSTALL_PREFIX=c:\path\to\install ..
-	ninja
-    ninja install
-	
-Please note: `-DCMAKE_LIBRARY_PATH` and `-DCMAKE_INCLUDE_PATH` point to both dependencies directory and python directory! 
-
-Once build is complete go back to previous directory and run mnist example to test
-
-    cd ..
-    set PYTHONPATH=build
-	python mnist.py --device=ocl:0
-	
-For your daily use `set PYTHONPATH=c:\path\to\install\python` and include `import pytorch_ocl`
+### Python/PyTorch version
+Ensure you are using a supported PyTorch version (2.4+ recommended, 1.13 also supported).

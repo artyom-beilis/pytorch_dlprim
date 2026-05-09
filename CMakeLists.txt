@@ -1,5 +1,36 @@
-cmake_minimum_required(VERSION 3.1 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.15 FATAL_ERROR)
 project(dlprim_backend)
+
+include(cmake/CPM.cmake)
+
+CPMAddPackage(
+    NAME opencl_headers
+    GITHUB_REPOSITORY KhronosGroup/OpenCL-Headers
+    GIT_TAG v2024.10.24
+)
+
+CPMAddPackage(
+    NAME opencl_clhpp
+    GITHUB_REPOSITORY KhronosGroup/OpenCL-CLHPP
+    GIT_TAG v2024.10.24
+    OPTIONS "BUILD_EXAMPLES OFF" "BUILD_TESTING OFF"
+)
+
+set(OCL_PATH ${opencl_headers_SOURCE_DIR} ${opencl_clhpp_SOURCE_DIR}/include CACHE PATH "Path to OpenCL headers")
+find_library(OCL_LIB OpenCL REQUIRED)
+
+CPMAddPackage(
+    NAME dlprimitives
+    GITHUB_REPOSITORY artyom-beilis/dlprimitives
+    GIT_TAG master
+    OPTIONS
+        "USE_ONNX OFF"
+        "BUILD_CORE_ONLY ON"
+        "BUILD_EXAMPLES OFF"
+        "BUILD_TESTING OFF"
+        "DLPRIM_STATIC_BUILD ON"
+)
+
 find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
 find_package(Torch 1.13 REQUIRED)
 find_package(pybind11 REQUIRED)
@@ -8,14 +39,6 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
 option(BUILD_CORE_ONLY "Core Build" ON)
 option(DLPRIM_STATIC_BUILD "Build static version only" ON)
 option(BUILD_CPLUS_EXAMPLE "Build C++ examples" OFF)
-
-add_subdirectory(dlprimitives)
-include_directories("${OCL_PATH}")
-include_directories(${PYTHON_INCLUDE_DIR})
-include_directories(${CMAKE_CURRENT_BINARY_DIR}/dlprimitives)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/dlprimitives/include)
-include_directories(${Python3_INCLUDE_DIRS})   # Python include
-include_directories(${pybind11_INCLUDE_DIRS})  # pybind11 include
 
 message(" Pytorch libraries: ${TORCH_LIBRARIES}")
 message(" Python libraries: ${Python3_LIBRARIES}")
@@ -44,6 +67,13 @@ target_compile_features(pt_ocl PRIVATE cxx_std_17)
 
 # Link against LibTorch
 target_link_libraries(pt_ocl ${TORCH_LIBRARIES} ${OCL_LIB} dlprim_core ${Python3_LIBRARIES})
+target_include_directories(pt_ocl PRIVATE 
+    "${OCL_PATH}"
+    "${dlprimitives_SOURCE_DIR}/include"
+    "${dlprimitives_BINARY_DIR}"
+    "${Python3_INCLUDE_DIRS}"
+    "${pybind11_INCLUDE_DIRS}"
+)
 if(WIN32)
     target_link_libraries(pt_ocl ${Python3_LIBRARIES})
 endif()
@@ -58,18 +88,7 @@ else()
 	 
 endif()
 
-	
-
-
-foreach(PYNAME __init__.py)
-    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/python/pytorch_ocl/${PYNAME} "${CMAKE_BINARY_DIR}/pytorch_ocl/${PYNAME}" COPYONLY)
-    install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/python/pytorch_ocl/${PYNAME} DESTINATION python/pytorch_ocl)
-endforeach()
-
-install(TARGETS pt_ocl 
-		LIBRARY DESTINATION python/pytorch_ocl
-		RUNTIME DESTINATION python/pytorch_ocl
-	)
+install(TARGETS pt_ocl DESTINATION pytorch_ocl)
 
 # Add C++ examples
 if(BUILD_CPLUS_EXAMPLE)

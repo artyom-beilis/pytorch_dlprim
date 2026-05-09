@@ -1,0 +1,26 @@
+[project]
+name = "pytorch-ocl"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+  "torch",
+]
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+build-dir = "build/{wheel_tag}"
+cmake.args = ["-DCMAKE_POLICY_VERSION_MINIMUM=3.5"]
+
+[tool.scikit-build.wheel.packages]
+pytorch_ocl = "python/pytorch_ocl"
+
+[tool.uv.sources]
+torch = [ { index = "pytorch-cpu" } ]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+
+[build-system]
+requires = ["scikit-build-core>=0.12", "pybind11>=3", "torch>=2.6"]
+build-backend = "scikit_build_core.build"
