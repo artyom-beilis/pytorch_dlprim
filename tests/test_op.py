@@ -452,6 +452,39 @@ def test_all(device):
     print("Test log_sigmoid_forward")
     test_fwd_bwd([([2,4],-1)],nn.LogSigmoid(),device)
 
+    print("Test any out")
+    test_fwd([([4,3],2)],lambda x:torch.any(x,dim=0).to(torch.float32),device)
+
+    print("Test any out keepdim")
+    test_fwd([([4,3],2)],lambda x:torch.any(x,dim=1,keepdim=True).to(torch.float32),device)
+
+    print("Test all out")
+    test_fwd([([4,3],2)],lambda x:torch.all(x,dim=0).to(torch.float32),device)
+
+    print("Test all out keepdim")
+    test_fwd([([4,3],2)],lambda x:torch.all(x,dim=1,keepdim=True).to(torch.float32),device)
+
+    print("Test isposinf (with nan)")
+    test_fwd([([4,3],-1)],lambda x:torch.isposinf(x.sqrt()).to(torch.float32),device)
+
+    print("Test isposinf inf")
+    test_fwd([([4,3],-1)],lambda x:torch.isposinf(x*torch.inf).to(torch.float32),device)
+
+    print("Test isposinf int")
+    test_fwd([([4,3],0x7fffffff)],lambda x:torch.isposinf(x).to(torch.float32),device)
+
+    print("Test isneginf (with nan)")
+    test_fwd([([4,3],-1)],lambda x:torch.isneginf(x.sqrt()).to(torch.float32),device)
+
+    print("Test isneginf inf")
+    test_fwd([([4,3],-1)],lambda x:torch.isneginf(x*torch.inf).to(torch.float32),device)
+
+    print("Test isneginf int")
+    test_fwd([([4,3],0x7fffffff)],lambda x:torch.isneginf(x).to(torch.float32),device)
+
+    print("Test where out")
+    test_fwd([([4,3],2),([4,3],-1),([4,3],-1),([4,3],-1)],lambda c,x,y,o:torch.where(c.bool(),x,y,out=o),device)
+
 
 def test_concat(dev):
     print("Test concat")
