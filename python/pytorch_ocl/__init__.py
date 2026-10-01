@@ -69,6 +69,9 @@ class _OCL:
     def empty_cache():
         impl_empty_cache()
 
+    def is_available():
+        return True
+
 def synchronize(dev):
     _OCL.synchronize(Dev)
 

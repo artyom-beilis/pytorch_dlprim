@@ -554,6 +554,111 @@ using c10::DeviceType;
         return red_op_out(self,dims,keepdim,dtype,out,RedOp::prod);
     }
 
+    // {"schema": "aten::all.out(Tensor self, int dim, bool keepdim=False, *, Tensor(a!) out) -> Tensor(a!)",
+    //  "dispatch": "True", "default": "False"}
+    // {"schema": "aten::any.out(Tensor self, int dim, bool keepdim=False, *, Tensor(a!) out) -> Tensor(a!)",
+    //  "dispatch": "True", "default": "False"}
+    Tensor& all_any_out(const Tensor& self, OptionalIntArrayRef dim, bool keepdim, Tensor& out, bool is_all)
+    {
+        GUARD;
+        Tensor self_c = self.contiguous();
+        Tensor out_c = out.contiguous();
+
+        dlprim::Tensor X = todp(self_c);
+        auto r = squeeze_dim(X.shape(), dim, keepdim);
+        dlprim::Tensor Y = todp(out_c);
+        TORCH_CHECK(r.second == Y.shape(), "Invalid output shape");
+        Y.reshape(r.first);
+
+        auto q = getExecutionContext(self);
+        dlprim::Context ctx(q);
+
+        // using float as median type: 0 = false, 1 = true
+        auto op = dlprim::core::PointwiseOperationBroadcastReduce::create(
+            ctx,
+            { X.specs() }, { Y.specs() },
+            0, dlprim::float_data,
+            "y0 = (x0 != 0) ? 1 : 0;",
+            is_all ? "reduce_y0 =   1;" : "reduce_y0 =   0;",
+            is_all ? "reduce_y0 = reduce_y0 && (y0 != 0);" : "reduce_y0 = reduce_y0 || (y0 != 0);");
+
+        WSGuard wsg(op->workspace(), self.device());
+        op->enqueue({ X }, { Y }, wsg.ws, {}, { 1 }, { 0 }, q);
+
+        if (!out.is_contiguous())
+            out.copy_(out_c);
+
+        sync_if_needed(self.device());
+        return out;
+    }
+
+    Tensor& all_out(const Tensor& self, int64_t dim, bool keepdim, Tensor& out)
+    {
+        GUARD;
+        std::vector<int64_t> dims({ dim });
+        return all_any_out(self, dims, keepdim, out, true);
+    }
+
+    Tensor& any_out(const Tensor& self, int64_t dim, bool keepdim, Tensor& out)
+    {
+        GUARD;
+        std::vector<int64_t> dims({ dim });
+        return all_any_out(self, dims, keepdim, out, false);
+    }
+
+    Tensor& compinf_out(const Tensor& self, Tensor& out, std::string const& op)
+    {
+        GUARD;
+        if (c10::isIntegralType(self.scalar_type(), true)) {
+            out.fill_(false);
+            sync_if_needed(out.device());
+            return out;
+        }
+
+        Tensor self_c = self.contiguous(), out_c = out.contiguous();
+
+        dlprim::Tensor x0 = todp(self_c);
+        dlprim::Tensor y0 = todp(out_c);
+        dlprim::core::pointwise_operation_broadcast({ x0 }, { y0 }, { }, { },
+            "y0 = isinf(x0) && (x0 "+op+" 0);",
+            getExecutionContext(self));
+
+        if (!out.is_contiguous())
+            out.copy_(out_c);
+
+        sync_if_needed(self.device());
+        return out;
+    }
+
+    // {"schema": "aten::isposinf.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor& isposinf_out(const Tensor& self, Tensor& out)
+    {
+        GUARD;
+        return compinf_out(self, out, ">");
+    }
+
+    // {"schema": "aten::isneginf.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor& isneginf_out(const Tensor& self, Tensor& out)
+    {
+        GUARD;
+        return compinf_out(self, out, "<");
+    }
+
+    // {"schema": "aten::where.self_out(Tensor condition, Tensor self, Tensor other, *, Tensor(a!) out)->Tensor(a!)", "dispath": "True", "default": "False"}
+    Tensor& where_out(const Tensor& condition, const Tensor& self, const Tensor& other, Tensor& out)
+    {
+        GUARD;
+        Tensor self_c = self.contiguous(), cond_c = condition.contiguous(),
+            other_c = other.contiguous(), out_c = out.contiguous();
+
+        dlprim::Tensor x0 = todp(cond_c), x1 = todp(self_c), x2 = todp(other_c), y0 = todp(out_c);
+        dlprim::core::pointwise_operation_broadcast({ x0,x1,x2 }, { y0 }, {}, {},
+            "y0=x0?x1:x2;", getExecutionContext(self));
+        if (!out.is_contiguous())
+            out.copy_(out_c);
+        sync_if_needed(self.device());
+        return out;
+    }
 
     // {"schema": "aten::hardtanh_(Tensor(a!) self, Scalar min_val=-1, Scalar max_val=1) -> Tensor(a!)", "dispatch": "True", "default": "False"} 
     Tensor hardtanh(Tensor const &self, const Scalar & min_val, const Scalar & max_val)
@@ -1332,7 +1437,7 @@ using c10::DeviceType;
         if(approximate == "tanh")
             dlprim::core::pointwise_operation({X},{Y},{},"y0 = 0.5f * x0 * (1.0f + tanh(0.7978845608028654f * x0 * (1.0f + 0.044715f * x0 * x0)));",q); // 0.7978845608028654 = sqrt(2/pi)
         else {
-            dlprim::core::pointwise_operation({X},{Y},{},"y0 = x0 * (1.0f + erf(x0 * 0.7071067811865475f  )) / 2.0f;",q); // 0.7071067811865475 = 1/sqrt(2)
+            dlprim::core::pointwise_operation({X},{Y},{},"y0 = x0 * (1.0f + erf(x0 * 0.7071067811865475f  )) * 0.5f;",q); // 0.7071067811865475 = 1/sqrt(2)
         }
             
         if (!out.is_contiguous())
@@ -1610,6 +1715,12 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::ge.Scalar_out",&ptdlprim::ge_out);
       m.impl("aten::lt.Scalar_out",&ptdlprim::lt_out);
       m.impl("aten::gt.Scalar_out",&ptdlprim::gt_out);
+
+      m.impl("aten::all.out",&ptdlprim::all_out);
+      m.impl("aten::any.out",&ptdlprim::any_out);
+      m.impl("aten::isposinf.out",&ptdlprim::isposinf_out);
+      m.impl("aten::isneginf.out",&ptdlprim::isneginf_out);
+      m.impl("aten::where.self_out",&ptdlprim::where_out);
 
       m.impl("aten::bitwise_and.Tensor_out",&ptdlprim::bitwise_and_out);
       m.impl("aten::bitwise_or.Tensor_out",&ptdlprim::bitwise_or_out);
