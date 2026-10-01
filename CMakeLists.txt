@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.1 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
 project(dlprim_backend)
 find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
 find_package(Torch 1.13 REQUIRED)
