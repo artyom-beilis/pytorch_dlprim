@@ -88,9 +88,8 @@ namespace ptdlprim {
     public: 
         static CLContextManager &instance()
         {
-            static std::once_flag once;
-            static std::unique_ptr<CLContextManager> inst;
-            std::call_once(once,init,inst);
+            // Initialize OpenCL first so runtimes such as clvk outlive the manager.
+            static std::unique_ptr<CLContextManager> inst = init();
             return *inst;
         }
         ~CLContextManager()
@@ -210,10 +209,11 @@ namespace ptdlprim {
 
 
 
-        static void init(std::unique_ptr<CLContextManager> &self)
+        static std::unique_ptr<CLContextManager> init()
         {
-            self.reset(new CLContextManager());
+            std::unique_ptr<CLContextManager> self(new CLContextManager());
             self->allocate();
+            return self;
         }
 #ifndef WIN32
         // Called in the forked child if cuda has already been initialized
