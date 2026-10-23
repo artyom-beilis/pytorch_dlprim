@@ -44,7 +44,7 @@ namespace ptdlprim {
     dlprim::Tensor todp(torch::Tensor const &tt)
     {
         TORCH_CHECK(tt.device().type() == OpenCLDeviceType,"OpenCL device is required for tensor");
-        TORCH_CHECK(tt.is_contiguous(),"dlprim::Tensor must be contiguous");
+        TORCH_CHECK(!tt.is_sparse(),"dlprim::Tensor must be in strided layout");
         auto sizes = tt.sizes();
         auto offset = tt.storage_offset();
         auto dtype = tt.dtype();
