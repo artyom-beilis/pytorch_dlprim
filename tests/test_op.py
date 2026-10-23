@@ -485,6 +485,26 @@ def test_all(device):
     print("Test where out")
     test_fwd([([4,3],2),([4,3],-1),([4,3],-1),([4,3],-1)],lambda c,x,y,o:torch.where(c.bool(),x,y,out=o),device)
 
+    print("Test index_select")
+    test_fwd([([3,2,4,2],-1),([5],4)],lambda x,i:x.index_select(2,i),device)
+    
+    print("Test index_add")
+    test_fwd([([3,4,4],-1),([5],4),([3,5,4],-1)],lambda x,i,s:x.index_add(1,i,s,alpha=0.3),device)
+
+    print("Test gather")
+    test_fwd([([4,4],-1),([3,2],4)],lambda x,i:x.gather(0,i),device)
+
+    print("Test scatter_add")
+    test_fwd([([3,4,4],-1),([1,3,2],4),([1,3,2],-1)],lambda x,i,s:x.scatter_add(2,i,s),device)
+
+    print("Test embedding")
+    test_fwd_bwd([([8,3],-1),([5,3],8)],lambda w,i:F.embedding(i,w),device)
+
+    print("Test embedding padding_idx")
+    test_fwd_bwd([([8,3],-1),([5,3],8)],lambda w,i:F.embedding(i,w,padding_idx=3),device)
+
+    print("Test embedding scale_grad_by_freq")
+    test_fwd_bwd([([8,3],-1),([5,3],8)],lambda w,i:F.embedding(i,w,padding_idx=5,scale_grad_by_freq=True),device)
 
 def test_concat(dev):
     print("Test concat")

@@ -33,6 +33,7 @@ add_library(pt_ocl SHARED
         src/loss_ops.cpp
         src/random_ops.cpp
         src/norm_ops.cpp
+        src/select_ops.cpp
         src/utils.cpp
         src/registeration.cpp
         src/CLTensor.cpp
