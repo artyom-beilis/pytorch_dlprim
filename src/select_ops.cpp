@@ -1,4 +1,4 @@
-#include <ATen/Aten.h>
+#include <ATen/ATen.h>
 #include <Python.h>
 #include "CLTensor.h"
 #include "utils.h"
@@ -6,15 +6,15 @@
 #include <dlprim/core/select.hpp>
 #include <dlprim/core/pointwise.hpp>
 
-extern "C" static int pycallback(void* p) {
+extern "C"  int pt_dlpprim_pycallback(void* p) {
     PyErr_SetString(PyExc_IndexError, "out of bound");
     return -1;
 }
 
-extern "C" static void CL_CALLBACK _event_err(cl_event evt, cl_int status, void* dat) {
+extern "C"  void CL_CALLBACK pt_dplprim__event_err(cl_event evt, cl_int status, void* dat) {
     clReleaseEvent(evt);
     if (*(cl_int*)dat == -1) {
-        Py_AddPendingCall(pycallback, nullptr);
+        Py_AddPendingCall(pt_dlpprim_pycallback, nullptr);
     }
 }
 
@@ -44,7 +44,7 @@ namespace ptdlprim {
         sel->enqueue(x, y, i, xst, yst, ist, dim, &ws, alpha, e);
         cl::Event ev;
         e.queue().enqueueReadBuffer(ws.device_buffer(),false,ws.device_offset(),sizeof(cl_int),&err,nullptr,&ev);
-        ev.setCallback(CL_COMPLETE, _event_err, &err);
+        ev.setCallback(CL_COMPLETE, pt_dplprim__event_err, &err);
         sync_if_needed(self.device());
         return out;
     }
