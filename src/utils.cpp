@@ -40,22 +40,34 @@ namespace ptdlprim {
         cl::Buffer buf(p,true);
         return buf;
     }
-    
-    dlprim::Tensor todp(torch::Tensor const &tt)
+
+    static dlprim::Tensor todp_unchecked(torch::Tensor const &tt)
     {
-        TORCH_CHECK(tt.device().type() == OpenCLDeviceType,"OpenCL device is required for tensor");
-        TORCH_CHECK(tt.is_contiguous(),"dlprim::Tensor must be contiguous");
         auto sizes = tt.sizes();
         auto offset = tt.storage_offset();
         auto dtype = tt.dtype();
         cl::Buffer buf = buffer_from_tensor(tt);
         dlprim::Shape sp;
-        if(sizes.empty())
+        if (sizes.empty())
             sp = dlprim::Shape(1); // scalar
         else
-            sp = dlprim::Shape::from_range(sizes.begin(),sizes.end());
-        dlprim::Tensor res(buf,offset,sp,todp(dtype));
+            sp = dlprim::Shape::from_range(sizes.begin(), sizes.end());
+        dlprim::Tensor res(buf, offset, sp, todp(dtype));
         return res;
+    }
+
+    dlprim::Tensor todp(torch::Tensor const &tt)
+    {
+        TORCH_CHECK(tt.device().type() == OpenCLDeviceType,"OpenCL device is required for tensor");
+        TORCH_CHECK(tt.is_contiguous(),"dlprim::Tensor must be contiguous");
+        return todp_unchecked(tt);
+    }
+
+    dlprim::Tensor todp_strided(torch::Tensor const& tt)
+    {
+        TORCH_CHECK(tt.device().type() == OpenCLDeviceType,"OpenCL device is required for tensor");
+        TORCH_CHECK(tt.layout()==c10::Layout::Strided, "dlprim::Tensor must be strided");
+        return todp_unchecked(tt);
     }
 
     torch::Tensor new_ocl_tensor(torch::IntArrayRef size,c10::Device dev,c10::ScalarType type)

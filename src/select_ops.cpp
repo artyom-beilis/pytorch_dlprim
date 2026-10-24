@@ -5,18 +5,7 @@
 
 #include <dlprim/core/select.hpp>
 #include <dlprim/core/pointwise.hpp>
-
-extern "C"  int pt_dlpprim_pycallback(void* p) {
-    PyErr_SetString(PyExc_IndexError, "out of bound");
-    return -1;
-}
-
-extern "C"  void CL_CALLBACK pt_dplprim__event_err(cl_event evt, cl_int status, void* dat) {
-    clReleaseEvent(evt);
-    if (*(cl_int*)dat == -1) {
-        Py_AddPendingCall(pt_dlpprim_pycallback, nullptr);
-    }
-}
+#define STR(...) #__VA_ARGS__
 
 namespace ptdlprim {
     using namespace at;
@@ -25,26 +14,38 @@ namespace ptdlprim {
     using c10::DeviceType;
     using dlprim::core::Select;
 
-    Tensor& _select(const Tensor& self, int64_t dim, const Tensor& index, Tensor& out, Select::Op op, Select::Target tg, bool scal, double alpha)
+    static int _pycallback(void* p) {
+        PyErr_SetString(PyExc_IndexError, "out of bound");
+        return -1;
+    }
+
+    static void CL_CALLBACK _event_err(cl_event evt, cl_int status, void* dat) {
+        clReleaseEvent(evt);
+        if (*(cl_int*)dat == -1) {
+            Py_AddPendingCall(_pycallback, nullptr);
+        }
+    }
+
+    static Tensor& _select(const Tensor& self, int64_t dim, const Tensor& index, Tensor& out, Select::Op op, Select::Target tg, bool scal, double alpha)
     {
         GUARD;
-        auto x = todp(self), i = todp(index), y = todp(out);
+        auto x = todp_strided(self), i = todp_strided(index), y = todp_strided(out);
         WSGuard gd(sizeof(cl_int), self.device());
-        dlprim::Tensor &ws = gd.ws;
+        dlprim::Tensor &flag = gd.ws;
         auto e = getExecutionContext(self);
         static cl_int err;
         err = 0;
-        e.queue().enqueueWriteBuffer(ws.device_buffer(),false,ws.device_offset(),sizeof(cl_int),&err);
+        e.queue().enqueueWriteBuffer(flag.device_buffer(),false,flag.device_offset(),sizeof(cl_int),&err);
         dlprim::Context ctx(e);
         auto sel = Select::create(ctx, self.dim(), x.dtype(), i.dtype(), op, tg, scal);
         auto xstrds = self.strides(), istrds = index.strides(), ystrds = out.strides();
         auto xst = dlprim::Shape::from_range(xstrds.begin(), xstrds.end());
         auto ist = dlprim::Shape::from_range(istrds.begin(), istrds.end());
         auto yst = dlprim::Shape::from_range(ystrds.begin(), ystrds.end());
-        sel->enqueue(x, y, i, xst, yst, ist, dim, &ws, alpha, e);
+        sel->enqueue(x, y, i, xst, yst, ist, dim, &flag, alpha, e);
         cl::Event ev;
-        e.queue().enqueueReadBuffer(ws.device_buffer(),false,ws.device_offset(),sizeof(cl_int),&err,nullptr,&ev);
-        ev.setCallback(CL_COMPLETE, pt_dplprim__event_err, &err);
+        e.queue().enqueueReadBuffer(flag.device_buffer(),false,flag.device_offset(),sizeof(cl_int),&err,nullptr,&ev);
+        ev.setCallback(CL_COMPLETE, _event_err, &err);
         sync_if_needed(self.device());
         return out;
     }
@@ -138,20 +139,24 @@ namespace ptdlprim {
             dcnt = gd.ws.workspace_as_type(dlprim::uint32_data);
             dlprim::core::fill_tensor(dcnt, 0.0, e);
             dlprim::Tensor vcnt = dlprim::Tensor(dcnt.device_buffer(),dcnt.device_offset(),sp,tp);
-            dlprim::core::pointwise_operation({dind},{vcnt},
-                {(double)W}, "if(x0<w0)atomic_inc(((volatile __global uint*)py0)+py0_offset+x0);return;", e);
+            dlprim::core::pointwise_operation({dind},{vcnt},{(double)W},
+                "if(x0<w0)atomic_inc(((volatile __global uint*)py0)+py0_offset+x0);return;", e);
         }
         int64_t n[2] = {sp[0],grad_output.size(-1)};
         _select(grad_output.reshape(n), 0, indc.as_strided(n, {1,0}), out, Select::ADD, Select::Y, false, 0.);
         int64_t pd = padding_idx.as_int_unchecked();
         if (scale_grad_by_freq) {
-            sp[1] = n[1]; // [w,d]->[n,d]
-            dlprim::Tensor vout(buffer_from_tensor(out),out.storage_offset(),sp,todp(out.scalar_type())),
-                vcnt(dcnt.device_buffer(),dcnt.device_offset(),sp,dlprim::uint32_data);
-            dlprim::core::pointwise_operation_broadcast({dind},{vout,vcnt},
+            dcnt.reshape({dcnt.shape()[0],1});
+            dlprim::core::pointwise_operation_broadcast({dcnt},{todp_strided(out)},
                 {(double)pd,(double)out.stride(0),(double)out.stride(1)},
                 {dind.dtype(),dlprim::int64_data,dlprim::int64_data},
-                "py0+=py0_offset+x0*w1+index.s[1]*w2;*py0=x0==w0?0:*py0/py1[py1_offset+x0];return;", e);
+                STR(
+                    if (x0!=0) {
+                        py0+=py0_offset+index.s[0]*w1+index.s[1]*w2;
+                        *py0=index.s[0]==w0?0:*py0/x0;
+                    }
+                    return;
+                ), e);
         } else if (pd>=0) {
             out.index_put_({pd,indexing::Slice()},0);
         }
