@@ -753,13 +753,15 @@ using c10::DeviceType;
     Tensor &cat_internal(TL const &tensors, int64_t dim, Tensor &out, bool reuse)
     {
         GUARD;
+        TORCH_CHECK(!tensors.empty(), "expected a non-empty list of Tensors");
         std::vector<dlprim::Tensor> list;
         std::vector<Tensor> list_c;
         for(auto const &t:tensors) {
+            if (t.dim() == 1 && t.size(0) == 0) continue; // torch.cat accepts (0,) tensors but ignores
             list_c.push_back(t.contiguous());
             list.push_back(todp(list_c.back()));
         }
-        TORCH_CHECK(!list_c.empty());
+        if (list.empty()) return out; // all (0,) tensors
         Tensor &ref_tensor=list_c.front();
         size_t total_shape = 0;
         dlprim::Shape ref;
