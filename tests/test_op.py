@@ -497,6 +497,8 @@ def test_concat(dev):
         y3s = torch.zeros(10,30,device='cpu')
         y3 = y3s[::2,:]
         torch.concat((x1,x2),dim=1,out=y3)
+        e = torch.empty(0,device='cpu')
+        y4 = torch.concat((e,x1,e,x2,e),dim=1)
 
         x1d = x1.to(dev)
         x2d = x2.to(dev)
@@ -506,11 +508,14 @@ def test_concat(dev):
         y3sd = y3s.to(dev)
         y3d = y3sd[::2,:]
         torch.concat((x1d,x2d),dim=1,out=y3d)
+        ed = torch.empty(0,device=dev)
+        y4d = torch.concat((e,x1,e,x2,e),dim=1)
    
         for n,d in [('direct',get_diff(y1,y1d)),
                     ('out',get_diff(y2,y2d)),
                     ('out/s base',get_diff(y3s,y3sd)),
-                    ('outs/',get_diff(y3,y3d))]:
+                    ('outs/',get_diff(y3,y3d)),
+                    ('empty',get_diff(y4,y4d))]:
             print("%10s %.5f" % (n,d))
             if d > 0:
                 raise Exception("Failed concat:" + n)
