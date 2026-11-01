@@ -410,6 +410,27 @@ using c10::DeviceType;
         return binary_op_out_tensor(self,other,out,"*");
     }
 
+    // "pow.Tensor_Tensor_out(Tensor self, Tensor exponent, *, Tensor(a!) out) -> Tensor(a!)"
+    Tensor & pow_out_tensor(const Tensor & self, const Tensor & exponent, Tensor & out)
+    {
+        GUARD;
+        return binary_op_out_tensor(self, exponent, out, "", "y0=pow(left,right);");
+    }
+
+    // "fmod.Tensor_out(Tensor self, Tensor other, *, Tensor(a!) out) -> Tensor(a!)";
+    Tensor & fmod_out(const Tensor & self, const Tensor & other, Tensor & out)
+    {
+        GUARD;
+        return binary_op_out_tensor(self, other, out, "", "y0=fmod(left,right);");
+    }
+
+    // "remainder.Tensor_out(Tensor self, Tensor other, *, Tensor(a!) out) -> Tensor(a!)";
+    Tensor & remainder_out(const Tensor & self, const Tensor & other, Tensor & out)
+    {
+        GUARD;
+        return binary_op_out_tensor(self, other, out, "", "y0=left-right*floor(left/right);");
+    }
+
     // {"schema": "aten::addcdiv.out(Tensor self, Tensor tensor1, Tensor tensor2, *, Scalar value=1, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor & addcdiv_out(const Tensor & self, const Tensor & tensor1, const Tensor & tensor2, const Scalar & value, Tensor & out)
     {
@@ -554,10 +575,6 @@ using c10::DeviceType;
         return red_op_out(self,dims,keepdim,dtype,out,RedOp::prod);
     }
 
-    // {"schema": "aten::all.out(Tensor self, int dim, bool keepdim=False, *, Tensor(a!) out) -> Tensor(a!)",
-    //  "dispatch": "True", "default": "False"}
-    // {"schema": "aten::any.out(Tensor self, int dim, bool keepdim=False, *, Tensor(a!) out) -> Tensor(a!)",
-    //  "dispatch": "True", "default": "False"}
     Tensor& all_any_out(const Tensor& self, OptionalIntArrayRef dim, bool keepdim, Tensor& out, bool is_all)
     {
         GUARD;
@@ -592,6 +609,7 @@ using c10::DeviceType;
         return out;
     }
 
+    // {"schema": "aten::all.out(Tensor self, int dim, bool keepdim=False, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor& all_out(const Tensor& self, int64_t dim, bool keepdim, Tensor& out)
     {
         GUARD;
@@ -599,11 +617,48 @@ using c10::DeviceType;
         return all_any_out(self, dims, keepdim, out, true);
     }
 
+    Tensor& all_dim_out(const Tensor& self, OptionalIntArrayRef dims, bool keepdim, Tensor& out)
+    {
+        GUARD;
+        return all_any_out(self, dims, keepdim, out, true);
+    }
+
+    // {"schema": "aten::all.all_out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor& all(const Tensor& self, Tensor& out)
+    {
+        GUARD;
+        const int64_t dim = self.dim();
+        std::vector<int64_t> dims(dim);
+        for (int64_t i = 0; i < dim; i++) {
+            dims[i] = i;
+        }
+        return all_any_out(self, dims, false, out, true);
+    }
+
+    // {"schema": "aten::any.out(Tensor self, int dim, bool keepdim=False, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
     Tensor& any_out(const Tensor& self, int64_t dim, bool keepdim, Tensor& out)
     {
         GUARD;
         std::vector<int64_t> dims({ dim });
         return all_any_out(self, dims, keepdim, out, false);
+    }
+
+    Tensor& any_dim_out(const Tensor& self, OptionalIntArrayRef dims, bool keepdim, Tensor& out)
+    {
+        GUARD;
+        return all_any_out(self, dims, keepdim, out, false);
+    }
+
+    // {"schema": "aten::any.all_out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
+    Tensor& any(const Tensor& self, Tensor& out)
+    {
+        GUARD;
+        const int64_t dim = self.dim();
+        std::vector<int64_t> dims(dim);
+        for (int64_t i = 0; i < dim; i++) {
+            dims[i] = i;
+        }
+        return all_any_out(self, dims, false, out, false);
     }
 
     Tensor& compinf_out(const Tensor& self, Tensor& out, std::string const& op)
@@ -658,6 +713,15 @@ using c10::DeviceType;
             out.copy_(out_c);
         sync_if_needed(self.device());
         return out;
+    }
+
+    // "where.self(Tensor condition, Tensor self, Tensor other) -> Tensor"
+    Tensor where(const Tensor & condition, const Tensor & self, const Tensor & other)
+    {
+        GUARD;
+        auto sizes = at::infer_size(at::infer_size(self.sizes(), condition.sizes()), other.sizes());
+        Tensor out = new_tensor_as(dlprim::Shape::from_range(sizes.begin(), sizes.end()), self);
+        return where_out(condition, self, other, out);
     }
 
     // {"schema": "aten::hardtanh_(Tensor(a!) self, Scalar min_val=-1, Scalar max_val=1) -> Tensor(a!)", "dispatch": "True", "default": "False"} 
@@ -747,6 +811,27 @@ using c10::DeviceType;
     {
         GUARD;
         return unitary_op(self,out,"y0 = x0 < 0 ? -1 : (x0 > 0 ? 1 : 0) ;");
+    }
+
+    // "sin.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)";
+    Tensor & sin_out(const Tensor & self, Tensor & out)
+    {
+        GUARD;
+        return unitary_op(self,out,"y0 = sin(x0);");
+    }
+
+    // "cos.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)";
+    Tensor & cos_out(const Tensor & self, Tensor & out)
+    {
+        GUARD;
+        return unitary_op(self,out,"y0 = cos(x0);");
+    }
+
+    // "tan.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)";
+    Tensor & tan_out(const Tensor & self, Tensor & out)
+    {
+        GUARD;
+        return unitary_op(self,out,"y0 = tan(x0);");
     }
 
     template<typename TL>
@@ -1541,7 +1626,8 @@ using c10::DeviceType;
         double dstart = start.to<double>();
         double dend   = end.to<double>();
         double dstep = step.to<double>();
-        int64_t size = std::ceil((dend - dstart) / dstep);
+        TORCH_CHECK(dstep != 0, "step must be nonzero");
+        int64_t size = (int64_t)std::ceil((dend - dstart) / dstep);
         int64_t numel = out.numel();
         
         if(numel  != size) {
@@ -1565,6 +1651,36 @@ using c10::DeviceType;
 
         sync_if_needed(out.device());
         return out;
+    }
+
+    // "linspace.out(Scalar start, Scalar end, int steps, *, Tensor(a!) out) -> Tensor(a!)";
+    Tensor & linspace_out(const Scalar & start, const Scalar & end, int64_t steps, Tensor & out)
+    {
+        GUARD;
+        if (out.numel()!=steps)
+            out.resize_({steps});
+
+        if (steps == 0) return out;
+        auto dstart = start.toDouble();
+        auto dend = end.toDouble();
+        Tensor outc = out.contiguous(); 
+        auto y = todp(outc);
+        if (steps > 1) steps--;
+        dlprim::core::pointwise_operation({}, {y},
+            {dstart, (dend-dstart)/steps},
+            "y0 = w0 + index*w1;", getExecutionContext(out));
+        if (!out.is_contiguous())
+            out.copy_(outc);
+
+        sync_if_needed(out.device());
+        return out;
+    }
+
+    //"atan2.out(Tensor self, Tensor other, *, Tensor(a!) out) -> Tensor(a!)";
+    Tensor & atan2_out(const Tensor & self, const Tensor & other, Tensor & out)
+    {
+        GUARD;
+        return binary_op_out_tensor(self,other,out,"","y0 = atan2(left,right);");
     }
 
     // {"schema": "aten::maximum.out(Tensor self, Tensor other, *, Tensor(a!) out) -> Tensor(a!)", "dispatch": "True", "default": "False"}
@@ -1703,6 +1819,9 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::leaky_relu_backward.grad_input",&ptdlprim::leaky_relu_backward_out);
       m.impl("aten::hardswish_backward",&ptdlprim::hardswish_backward);
       m.impl("aten::argmax.out",&ptdlprim::argmax_out);
+      m.impl("aten::sin.out",&ptdlprim::sin_out);
+      m.impl("aten::cos.out",&ptdlprim::cos_out);
+      m.impl("aten::tan.out",&ptdlprim::tan_out);
       
       m.impl("aten::ne.Tensor_out",&ptdlprim::ne_out_tensor);
       m.impl("aten::eq.Tensor_out",&ptdlprim::eq_out_tensor);
@@ -1719,9 +1838,14 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::gt.Scalar_out",&ptdlprim::gt_out);
 
       m.impl("aten::all.out",&ptdlprim::all_out);
+      m.impl("aten::all.dims_out",&ptdlprim::all_dim_out);
+      m.impl("aten::all.all_out",&ptdlprim::all);
       m.impl("aten::any.out",&ptdlprim::any_out);
+      m.impl("aten::any.dims_out",&ptdlprim::any_dim_out);
+      m.impl("aten::any.all_out",&ptdlprim::any);
       m.impl("aten::isposinf.out",&ptdlprim::isposinf_out);
       m.impl("aten::isneginf.out",&ptdlprim::isneginf_out);
+      m.impl("aten::where.self",&ptdlprim::where);
       m.impl("aten::where.self_out",&ptdlprim::where_out);
 
       m.impl("aten::bitwise_and.Tensor_out",&ptdlprim::bitwise_and_out);
@@ -1743,13 +1867,18 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::logit.out",&ptdlprim::logit_out);
       m.impl("aten::logit",&ptdlprim::logit);
       m.impl("aten::arange.start_out",&ptdlprim::arange_out);
+      m.impl("aten::linspace.out",&ptdlprim::linspace_out);
       m.impl("aten::amax.out",&ptdlprim::amax_out);
       m.impl("aten::amin.out",&ptdlprim::amin_out);
       m.impl("aten::round.out",&ptdlprim::round_out);
       m.impl("aten::atan.out",&ptdlprim::atan_out);
+      m.impl("aten::atan2.out",&ptdlprim::atan2_out);
       m.impl("aten::maximum.out",&ptdlprim::maximum_out);
       m.impl("aten::minimum.out",&ptdlprim::minimum_out);
       m.impl("aten::pow.Tensor_Scalar_out",&ptdlprim::pow_out);
+      m.impl("aten::pow.Tensor_Tensor_out",&ptdlprim::pow_out_tensor);
+      m.impl("aten::fmod.Tensor_out",&ptdlprim::fmod_out);
+      m.impl("aten::remainder.Tensor_out",&ptdlprim::remainder_out);
       m.impl("aten::log_sigmoid_forward",&ptdlprim::log_sigmoid_forward);
       m.impl("aten::log_sigmoid_forward.output",&ptdlprim::log_sigmoid_forward_out);
       m.impl("aten::log_sigmoid_backward.grad_input", &ptdlprim::log_sigmoid_backward_out);
