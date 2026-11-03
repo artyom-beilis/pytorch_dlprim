@@ -268,6 +268,7 @@ using c10::DeviceType;
         case dlprim::uint64_data:   return (int64_t)data.u64;
         default:
             TORCH_CHECK(!"Not implemented dtype","Not implemented data type");
+            return 0;
         }
     }
 
