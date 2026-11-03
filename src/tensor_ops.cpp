@@ -420,6 +420,19 @@ using c10::DeviceType;
         return self;
     }
 
+    // "masked_fill_.Scalar(Tensor(a!) self, Tensor mask, Scalar value) -> Tensor(a!)";
+    Tensor& masked_fill_(Tensor& self, const Tensor& mask, const Scalar& value)
+    {
+        GUARD;
+        Tensor self_c = self.contiguous(), mc = mask.contiguous();
+        dlprim::Tensor x = todp(self_c), m = todp(mc);
+
+        dlprim::core::pointwise_operation_broadcast({x, m}, {x}, {value.toDouble()}, "y0=x1?w0:x0;", getExecutionContext(self));
+        if (!self.is_contiguous())
+            self.copy_(self_c);
+        sync_if_needed(self.device());
+        return self;
+    }
 
     void fallback(const c10::OperatorHandle& op, torch::jit::Stack* stack)
     {
@@ -446,6 +459,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
       m.impl("aten::_local_scalar_dense",&ptdlprim::_local_scalar_dense);
       m.impl("aten::masked_select",&ptdlprim::masked_select);
       m.impl("aten::resize_",&ptdlprim::resize_);
+      m.impl("aten::masked_fill_.Scalar",&ptdlprim::masked_fill_);
 }
 
 TORCH_LIBRARY_IMPL(aten, AutogradPrivateUse1, m) {

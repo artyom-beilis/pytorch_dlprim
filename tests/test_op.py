@@ -321,6 +321,8 @@ def test_all(device):
 
     print("atan")
     test_fwd([([4,3,5],-1)],torch.atan,device)
+    print("atan2")
+    test_fwd([([4,3,5],-1),([3,5],-1)],torch.atan2,device)
 
     #print("ChannelShuffle")
     #test_fwd_bwd([([3, 4, 2, 2],-1)],torch.nn.ChannelShuffle(2),device)
@@ -375,9 +377,13 @@ def test_all(device):
 
     print("Test arange out")
     test_fwd([([10],-1)],lambda x:torch.arange(0,10,out=x),device)
-
     print("Test arange out empty")
     test_fwd([([1],-1)],lambda x:torch.arange(0,10,out=x),device)
+
+    print("Test linspace out")
+    test_fwd([([3,3],-1)],lambda x:torch.linspace(0,9,9,out=x),device)
+    print("Test linspace out empty")
+    test_fwd([([1],-1)],lambda x:torch.linspace(0,9,9,out=x),device)
 
     print("Test amax full")
     test_fwd_bwd([([2,3,4,5],-1)],lambda x:torch.amax(x,(1,-1)),device)
@@ -445,45 +451,60 @@ def test_all(device):
 
     print("Test pow 2")
     test_fwd([([2,4],-1)],lambda a:torch.abs(a)**2.0,device)
-
     print("Test pow 1.3")
     test_fwd([([2,4],-1)],lambda a:torch.abs(a)**1.3,device)
+    print("Test pow tensor")
+    test_fwd([([2,4],-1),([4],-1)],lambda a,p:torch.abs(a)**p,device)
 
     print("Test log_sigmoid_forward")
     test_fwd_bwd([([2,4],-1)],nn.LogSigmoid(),device)
 
     print("Test any out")
     test_fwd([([4,3],2)],lambda x:torch.any(x,dim=0).to(torch.float32),device)
-
     print("Test any out keepdim")
     test_fwd([([4,3],2)],lambda x:torch.any(x,dim=1,keepdim=True).to(torch.float32),device)
+    print("Test any dims out")
+    test_fwd([([4,3,3],2)],lambda x:torch.any(x,dim=[0,1]).to(torch.float32),device)
+    print("Test any all out")
+    test_fwd([([4,3,3],2)],lambda x:torch.any(x).to(torch.float32),device)
 
     print("Test all out")
     test_fwd([([4,3],2)],lambda x:torch.all(x,dim=0).to(torch.float32),device)
-
     print("Test all out keepdim")
     test_fwd([([4,3],2)],lambda x:torch.all(x,dim=1,keepdim=True).to(torch.float32),device)
+    print("Test all dims out")
+    test_fwd([([4,3,3],2)],lambda x:torch.all(x,dim=[0,1]).to(torch.float32),device)
+    print("Test all all out")
+    test_fwd([([4,3,3],2)],lambda x:torch.all(x).to(torch.float32),device)
 
     print("Test isposinf (with nan)")
     test_fwd([([4,3],-1)],lambda x:torch.isposinf(x.sqrt()).to(torch.float32),device)
-
     print("Test isposinf inf")
     test_fwd([([4,3],-1)],lambda x:torch.isposinf(x*torch.inf).to(torch.float32),device)
-
     print("Test isposinf int")
     test_fwd([([4,3],0x7fffffff)],lambda x:torch.isposinf(x).to(torch.float32),device)
 
     print("Test isneginf (with nan)")
     test_fwd([([4,3],-1)],lambda x:torch.isneginf(x.sqrt()).to(torch.float32),device)
-
     print("Test isneginf inf")
     test_fwd([([4,3],-1)],lambda x:torch.isneginf(x*torch.inf).to(torch.float32),device)
-
     print("Test isneginf int")
     test_fwd([([4,3],0x7fffffff)],lambda x:torch.isneginf(x).to(torch.float32),device)
 
-    print("Test where out")
-    test_fwd([([4,3],2),([4,3],-1),([4,3],-1),([4,3],-1)],lambda c,x,y,o:torch.where(c.bool(),x,y,out=o),device)
+    print("Test where")
+    test_fwd([([4],2),([2,3,4],-1),([2,3,1],-1)],lambda c,x,y:torch.where(c.bool(),x,y),device)
+
+    print("Test sin")
+    test_fwd([([4,3],-1)],torch.sin,device)
+    print("Test cos")
+    test_fwd([([4,3],-1)],torch.cos,device)
+    print("Test tan")
+    test_fwd([([4,3],-1)],torch.tan,device)
+
+    print("Test fmod")
+    test_fwd([([4,3],-1),([2,4,3],-1)],torch.fmod,device)
+    print("Test remainder")
+    test_fwd([([4,3],-1),([2,4,3],-1)],torch.remainder,device)
 
     print("Test index_select")
     test_fwd([([3,2,4,2],-1),([5],4)],lambda x,i:x.index_select(2,i),device)
